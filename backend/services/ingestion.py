@@ -54,13 +54,14 @@ async def ingest_document(
 
     yield {"stage": "saved", "message": f"Saved document: {filename}", "pct": 10, "doc_id": doc_id}
 
-    # Step 1: Cognee semantic indexing
+    # Step 1: Cognee semantic indexing (add is fast; cognify runs in background)
     if _cognee_available:
         try:
             await cognee.add(content, dataset_name="petgraph")
             yield {"stage": "cognee_add", "message": "Added to Cognee index", "pct": 25}
-            await asyncio.wait_for(cognee.cognify(), timeout=120)
-            yield {"stage": "cognee_cognify", "message": "Cognee knowledge graph updated", "pct": 45}
+            # Kick off cognify in background so it doesn't block ingestion
+            asyncio.create_task(_run_cognify_background())
+            yield {"stage": "cognee_cognify", "message": "Cognee graph update queued", "pct": 45}
         except Exception as e:
             yield {"stage": "cognee_warn", "message": f"Cognee indexing skipped: {e}", "pct": 45}
     else:
@@ -308,3 +309,13 @@ async def _build_graph(entities: dict, doc_id: str):
                 "relationship": "administered_by",
                 "source_doc_id": doc_id,
             })
+
+
+async def _run_cognify_background():
+    """Fire-and-forget: runs cognify without blocking the caller."""
+    if not _cognee_available:
+        return
+    try:
+        await asyncio.wait_for(cognee.cognify(), timeout=300)
+    except Exception:
+        pass

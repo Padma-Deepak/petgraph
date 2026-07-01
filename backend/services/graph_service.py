@@ -364,6 +364,28 @@ async def _generate_intelligent_response(
     # Full medical history for the LLM
     pet_context = _build_pet_context(all_nodes, all_edges, node_map)
 
+    # Cognee GRAPH_COMPLETION: semantic graph-native reasoning over the indexed docs
+    cognee_insight = ""
+    if _cognee_available and OPENAI_API_KEY:
+        try:
+            from cognee.api.v1.search import SearchType
+            gc_results = await asyncio.wait_for(
+                cognee.search(query, search_type=SearchType.GRAPH_COMPLETION),
+                timeout=20,
+            )
+            if gc_results:
+                parts = []
+                for r in gc_results[:3]:
+                    for attr in ("text", "description", "layer_description", "content"):
+                        val = getattr(r, attr, None)
+                        if val:
+                            parts.append(str(val))
+                            break
+                if parts:
+                    cognee_insight = "Graph-derived insight: " + " | ".join(parts)
+        except Exception:
+            pass
+
     history_block = ""
     if history:
         turns = [
@@ -371,6 +393,8 @@ async def _generate_intelligent_response(
             for m in history[-6:]
         ]
         history_block = "Conversation so far:\n" + "\n".join(turns) + "\n\n"
+
+    cognee_block = f"\n\nSemantic graph context (from Cognee):\n{cognee_insight}\n" if cognee_insight else ""
 
     prompt = (
         f"{history_block}"
@@ -392,6 +416,7 @@ async def _generate_intelligent_response(
         f"and deeper history queries grounded in what is in the records. Keep each under 12 words.\n\n"
         f"Output ONLY valid JSON, no markdown fences.\n\n"
         f"Pet medical records:\n{pet_context}"
+        f"{cognee_block}"
     )
 
     try:
