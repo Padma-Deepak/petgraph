@@ -172,20 +172,12 @@ async def _find_anchors(query: str, all_nodes: list[dict]) -> list[str]:
 
     if _cognee_available and OPENAI_API_KEY:
         try:
-            from cognee.api.v1.search import SearchType
+            from cognee.modules.search.types.SearchType import SearchType
             cognee_results = await asyncio.wait_for(
-                cognee.search(query, search_type=SearchType.CHUNKS), timeout=20
+                cognee.search(query, query_type=SearchType.CHUNKS), timeout=20
             )
             for cr in (cognee_results or [])[:5]:
-                # Extract text from various Cognee result shapes
-                text = ""
-                for attr in ("text", "description", "layer_description", "content", "chunk_text"):
-                    val = getattr(cr, attr, None)
-                    if val:
-                        text = str(val)
-                        break
-                if not text and isinstance(cr, dict):
-                    text = str(cr)
+                text = str(getattr(cr, "search_result", "") or "")
                 text_lower = text.lower()
                 for n in all_nodes:
                     if n["name"].lower() in text_lower and n["id"] not in result:
@@ -368,19 +360,16 @@ async def _generate_intelligent_response(
     cognee_insight = ""
     if _cognee_available and OPENAI_API_KEY:
         try:
-            from cognee.api.v1.search import SearchType
             gc_results = await asyncio.wait_for(
-                cognee.search(query, search_type=SearchType.GRAPH_COMPLETION),
+                cognee.search(query),  # default query_type=GRAPH_COMPLETION
                 timeout=20,
             )
             if gc_results:
                 parts = []
                 for r in gc_results[:3]:
-                    for attr in ("text", "description", "layer_description", "content"):
-                        val = getattr(r, attr, None)
-                        if val:
-                            parts.append(str(val))
-                            break
+                    val = getattr(r, "search_result", None)
+                    if val:
+                        parts.append(str(val)[:400])
                 if parts:
                     cognee_insight = "Graph-derived insight: " + " | ".join(parts)
         except Exception:
