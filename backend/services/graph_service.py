@@ -26,23 +26,18 @@ async def get_full_graph() -> dict:
 
 async def symptom_query(query_text: str, history: list[dict] | None = None) -> dict:
     """
-    1. Cognee semantic search → find anchor nodes.
-    2. BFS from anchors → traversal path.
-    3. Generate longitudinal summary with citations.
-    Returns: {traversal_path, nodes, links, summary, citations, anchor_nodes}
+    1. BFS from keyword-matched anchors → graph animation path.
+    2. Full pet medical history → LLM generates a contextual, connected response.
+    Returns: {traversal_path, nodes, links, summary, citations, suggestions, anchor_nodes}
     """
     all_nodes = await db.get_all_nodes()
     all_edges = await db.get_all_edges()
-
     node_map = {n["id"]: n for n in all_nodes}
 
-    # Step 1: find anchor nodes via Cognee or fallback keyword matching
+    # BFS for graph animation (keyword anchors → traversal highlights)
     anchor_ids = await _find_anchors(query_text, all_nodes)
-
-    # Step 2: BFS up to depth 3 from anchors
     traversal_path = _bfs(anchor_ids, node_map, all_edges, max_depth=3)
 
-    # Collect subgraph
     visited_ids = set(traversal_path)
     sub_nodes = [_format_node(node_map[nid]) for nid in visited_ids if nid in node_map]
     sub_edges = [
@@ -50,10 +45,11 @@ async def symptom_query(query_text: str, history: list[dict] | None = None) -> d
         if e["source"] in visited_ids and e["target"] in visited_ids
     ]
 
-    # Step 3: generate summary
-    context_nodes = [node_map[nid] for nid in traversal_path if nid in node_map]
-    summary, citations, suggestions = await _generate_summary(
-        query_text, context_nodes, node_map, history=history or []
+    # Full-context intelligent response (not limited to BFS hits)
+    bfs_nodes = [node_map[nid] for nid in traversal_path if nid in node_map]
+    summary, citations, suggestions = await _generate_intelligent_response(
+        query_text, all_nodes, all_edges, node_map,
+        bfs_nodes=bfs_nodes, history=history or []
     )
 
     return {
@@ -235,89 +231,179 @@ def _bfs(start_ids: list[str], node_map: dict, edges: list[dict], max_depth: int
     return path
 
 
-async def _generate_summary(
+def _build_pet_context(all_nodes: list[dict], all_edges: list[dict], node_map: dict) -> str:
+    """Build a complete, structured medical history for every pet — used as LLM context."""
+    pets = [n for n in all_nodes if n["type"] == "pet"]
+    providers = [n for n in all_nodes if n["type"] == "provider"]
+    lines: list[str] = []
+
+    for pet in pets:
+        pp = pet.get("properties", {})
+        lines.append(
+            f"\n=== {pet['name']} | {pp.get('species','')} | {pp.get('breed','')} | {pp.get('sex','')} ==="
+        )
+        for e in all_edges:
+            if e["source"] == pet["id"] and e["relationship"] == "owned_by":
+                owner = node_map.get(e["target"])
+                if owner:
+                    lines.append(f"Owner: {owner['name']}")
+
+        # Visits
+        visits = sorted(
+            [node_map[e["target"]] for e in all_edges
+             if e["source"] == pet["id"] and e["relationship"] == "had_visit" and e["target"] in node_map],
+            key=lambda v: v.get("properties", {}).get("date") or "0000"
+        )
+        if visits:
+            lines.append("Visit history:")
+            for v in visits:
+                vp = v.get("properties", {})
+                prov = node_map.get(vp.get("provider_id", ""), {})
+                clinic = prov.get("properties", {}).get("clinic", "")
+                complaint = vp.get("chief_complaint") or vp.get("visit_type") or "routine"
+                lines.append(f"  [{vp.get('date','?')}] {prov.get('name','?')} ({clinic}) — {complaint}")
+
+        # Symptoms (with dates)
+        syms = []
+        for e in all_edges:
+            if e["source"] == pet["id"] and e["relationship"] == "has_symptom":
+                s = node_map.get(e["target"])
+                if s:
+                    d = e.get("properties", {}).get("date") or s.get("properties", {}).get("date") or ""
+                    syms.append((d, s))
+        if syms:
+            lines.append("Symptom history:")
+            for d, s in sorted(syms, key=lambda x: x[0]):
+                desc = s.get("properties", {}).get("description", "")
+                lines.append(f"  [{d or '?'}] {s['name']}{': ' + desc if desc else ''}")
+
+        # Diagnoses
+        dxs = [node_map[e["target"]] for e in all_edges
+               if e["source"] == pet["id"] and e["relationship"] == "received_diagnosis" and e["target"] in node_map]
+        if dxs:
+            lines.append("Diagnoses:")
+            for dx in dxs:
+                dp = dx.get("properties", {})
+                outcome = dp.get("outcome", "")
+                lines.append(f"  [{dp.get('date','?')}] {dx['name']}{' — ' + outcome if outcome else ''}")
+
+        # Medications (active and discontinued, with prescriber)
+        meds = [node_map[e["target"]] for e in all_edges
+                if e["source"] == pet["id"] and e["relationship"] == "prescribed" and e["target"] in node_map]
+        if meds:
+            lines.append("Medications:")
+            for med in meds:
+                mp = med.get("properties", {})
+                prescriber = node_map.get(mp.get("prescriber_id", ""), {}).get("name", "")
+                parts = [f"{med['name']} ({mp.get('status','?')})"]
+                if mp.get("dose"): parts.append(mp["dose"])
+                if mp.get("start_date"): parts.append(f"started {mp['start_date']}")
+                if mp.get("end_date"): parts.append(f"ended {mp['end_date']}")
+                if prescriber: parts.append(f"Rx by {prescriber}")
+                lines.append("  " + ", ".join(parts))
+
+        # Vaccines
+        vaxes = [node_map[e["target"]] for e in all_edges
+                 if e["source"] == pet["id"] and e["relationship"] == "received_vaccine" and e["target"] in node_map]
+        if vaxes:
+            lines.append("Vaccines:")
+            for vax in vaxes:
+                vp = vax.get("properties", {})
+                prov_name = node_map.get(vp.get("provider_id", ""), {}).get("name", "")
+                next_due = f" (next due: {vp['next_due']})" if vp.get("next_due") else ""
+                lines.append(f"  [{vp.get('date','?')}] {vax['name']}{next_due}{' — ' + prov_name if prov_name else ''}")
+
+    # Provider directory — so the LLM can name specific vets
+    if providers:
+        lines.append("\n=== Provider Directory ===")
+        for p in providers:
+            pp = p.get("properties", {})
+            record_count = sum(
+                1 for e in all_edges
+                if e["target"] == p["id"] and e["relationship"] in ("seen_at", "administered_by", "discontinued_by")
+            )
+            lines.append(
+                f"  {p['name']} ({pp.get('provider_type','vet')}) — {pp.get('clinic','?')} [{record_count} records on file]"
+            )
+
+    return "\n".join(lines)
+
+
+async def _generate_intelligent_response(
     query: str,
-    nodes: list[dict],
-    node_map: dict | None = None,
+    all_nodes: list[dict],
+    all_edges: list[dict],
+    node_map: dict,
+    bfs_nodes: list[dict],
     history: list[dict] | None = None,
 ) -> tuple[str, list[dict], list[str]]:
     """
-    Generate a longitudinal summary with inline [Provider · Date] citations
-    and 2–3 suggested follow-up questions, informed by conversation history.
-    Returns (summary_text, citations, suggestions).
+    Generate a tailored, contextually-aware response using the pet's FULL medical history.
+    The LLM sees every symptom, diagnosis, medication, and provider — not just BFS fragments.
+    Citations are extracted from the focused BFS subgraph for the UI strip.
     """
-    if not nodes:
-        return "No relevant history found.", [], []
-
-    nm = node_map or {}
-    context_lines = []
-    citations = []
-
-    for n in nodes:
+    # Citations strip from BFS (focused, not overwhelming)
+    citations: list[dict] = []
+    for n in bfs_nodes:
+        if n["type"] not in ("symptom", "diagnosis", "medication", "vaccine"):
+            continue
         props = n.get("properties", {})
         date = props.get("date") or props.get("start_date") or ""
-        source_docs = n.get("source_doc_ids", [])
-
         provider_name = ""
         for pkey in ("provider_id", "prescriber_id"):
             pid = props.get(pkey)
-            if pid and pid in nm:
-                provider_name = nm[pid]["name"]
+            if pid and pid in node_map:
+                provider_name = node_map[pid]["name"]
                 break
+        citations.append({
+            "entity": n["name"], "type": n["type"], "date": date,
+            "source": (n.get("source_doc_ids") or ["unknown"])[0],
+            "provider": provider_name,
+        })
 
-        cite_parts = [p for p in (provider_name, date) if p]
-        cite_hint = " · ".join(cite_parts)
+    # Full medical history for the LLM
+    pet_context = _build_pet_context(all_nodes, all_edges, node_map)
 
-        line = f"- [{n['type'].upper()}] {n['name']}"
-        if cite_hint:
-            line += f"  [cite: {cite_hint}]"
-        context_lines.append(line)
-
-        if n["type"] in ("symptom", "diagnosis", "medication", "vaccine"):
-            citations.append({
-                "entity": n["name"],
-                "type": n["type"],
-                "date": date,
-                "source": source_docs[0] if source_docs else "unknown",
-                "provider": provider_name,
-            })
-
-    context = "\n".join(context_lines)
-
-    # Build conversation history block (last 6 turns, clean text only)
     history_block = ""
     if history:
-        lines = []
-        for msg in history[-6:]:
-            role = "Owner" if msg["role"] == "user" else "PetGraph"
-            lines.append(f"{role}: {msg['content']}")
-        history_block = "Conversation so far:\n" + "\n".join(lines) + "\n\n"
+        turns = [
+            f"{'Owner' if m['role'] == 'user' else 'PetGraph'}: {m['content']}"
+            for m in history[-6:]
+        ]
+        history_block = "Conversation so far:\n" + "\n".join(turns) + "\n\n"
 
     prompt = (
         f"{history_block}"
-        f'Owner now asks: "{query}"\n\n'
-        f"Using the pet health graph nodes below, respond in JSON with exactly two keys:\n"
-        f'  "summary": 2–4 sentences answering the question. '
-        f"If this is a follow-up, connect it to the prior conversation. "
-        f"Embed inline citations as [Provider · Date] immediately after each clinical fact "
-        f'(e.g. "Bella had otitis externa [Dr. Webb · 2025-08-18]"). '
-        f"Use the [cite: ...] hints to form citations. Write in plain English for a pet owner.\n"
-        f'  "suggestions": array of exactly 3 short follow-up questions the owner might want to ask next, '
-        f"grounded in what was found. Keep each under 10 words.\n\n"
-        f"Respond with ONLY valid JSON — no markdown fences, no extra text.\n\n"
-        f"Graph nodes:\n{context}"
+        f'Owner says: "{query}"\n\n'
+        f"You are a knowledgeable pet health assistant. The owner's complete pet medical records are below.\n\n"
+        f"RESPOND AS JSON with keys 'summary' and 'suggestions'. Rules:\n\n"
+        f"summary (3-5 sentences, plain English for a pet owner):\n"
+        f"  1. CONNECT TO HISTORY: Explicitly check whether this symptom or concern appears in the records "
+        f"or could relate to a prior diagnosis, active medication, or past condition. State clearly if you "
+        f"found a connection or found nothing — never be vague.\n"
+        f"  2. INLINE CITATIONS: After every clinical fact write [Provider · Date] "
+        f'(e.g. "Bella had otitis externa [Dr. Webb · 2025-08-18]").\n'
+        f"  3. SPECIFIC NEXT STEP: If a vet visit is warranted, name the SPECIFIC provider from the "
+        f"directory who has treated this pet for similar issues, give their clinic, and say why they are "
+        f"the right choice. If not urgent, give home monitoring tips with clear escalation criteria.\n"
+        f"  4. FOLLOW-UP: End with one targeted clarifying question that would sharpen your advice.\n\n"
+        f"suggestions (array of exactly 3 items):\n"
+        f"  Mix of: follow-up symptom questions, specific next actions ('Book with Dr. X'), "
+        f"and deeper history queries grounded in what is in the records. Keep each under 12 words.\n\n"
+        f"Output ONLY valid JSON, no markdown fences.\n\n"
+        f"Pet medical records:\n{pet_context}"
     )
 
     try:
         raw = await _llm_call(prompt)
         parsed = _parse_json_response(raw)
-        summary_text = parsed.get("summary", _fallback_summary(nodes))
+        summary_text = parsed.get("summary", "")
         suggestions = parsed.get("suggestions", [])[:3]
         if not isinstance(suggestions, list):
             suggestions = []
     except Exception:
-        summary_text = _fallback_summary(nodes)
-        suggestions = []
+        summary_text = _fallback_summary(bfs_nodes)
+        suggestions = ["What medications is she currently on?", "When was her last vet visit?", "Is she eating and drinking normally?"]
 
     return summary_text, citations, suggestions
 
