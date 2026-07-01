@@ -1,4 +1,4 @@
-"""
+﻿"""
 Graph traversal, symptom query, and pre-visit summary.
 Uses Cognee hybrid search for semantic matching, then walks our SQLite graph.
 """
@@ -24,7 +24,7 @@ async def get_full_graph() -> dict:
     }
 
 
-async def symptom_query(query_text: str) -> dict:
+async def symptom_query(query_text: str, history: list[dict] | None = None) -> dict:
     """
     1. Cognee semantic search → find anchor nodes.
     2. BFS from anchors → traversal path.
@@ -52,7 +52,9 @@ async def symptom_query(query_text: str) -> dict:
 
     # Step 3: generate summary
     context_nodes = [node_map[nid] for nid in traversal_path if nid in node_map]
-    summary, citations = await _generate_summary(query_text, context_nodes)
+    summary, citations, suggestions = await _generate_summary(
+        query_text, context_nodes, node_map, history=history or []
+    )
 
     return {
         "anchor_nodes": anchor_ids,
@@ -61,6 +63,7 @@ async def symptom_query(query_text: str) -> dict:
         "links": sub_edges,
         "summary": summary,
         "citations": citations,
+        "suggestions": suggestions,
     }
 
 
@@ -194,7 +197,7 @@ async def _find_anchors(query: str, all_nodes: list[dict]) -> list[str]:
         except Exception:
             pass
 
-    # Always anchor to at least one symptom/diagnosis node
+    # Always anchor to at least one clinical node
     if not result:
         for n in all_nodes:
             if n["type"] in ("symptom", "diagnosis"):
@@ -232,40 +235,101 @@ def _bfs(start_ids: list[str], node_map: dict, edges: list[dict], max_depth: int
     return path
 
 
-async def _generate_summary(query: str, nodes: list[dict]) -> tuple[str, list[dict]]:
-    """Generate a longitudinal summary with inline source citations."""
+async def _generate_summary(
+    query: str,
+    nodes: list[dict],
+    node_map: dict | None = None,
+    history: list[dict] | None = None,
+) -> tuple[str, list[dict], list[str]]:
+    """
+    Generate a longitudinal summary with inline [Provider · Date] citations
+    and 2–3 suggested follow-up questions, informed by conversation history.
+    Returns (summary_text, citations, suggestions).
+    """
     if not nodes:
-        return "No relevant history found.", []
+        return "No relevant history found.", [], []
 
+    nm = node_map or {}
     context_lines = []
     citations = []
+
     for n in nodes:
         props = n.get("properties", {})
-        date = props.get("date", "")
+        date = props.get("date") or props.get("start_date") or ""
         source_docs = n.get("source_doc_ids", [])
-        source_str = source_docs[0] if source_docs else "unknown"
+
+        provider_name = ""
+        for pkey in ("provider_id", "prescriber_id"):
+            pid = props.get(pkey)
+            if pid and pid in nm:
+                provider_name = nm[pid]["name"]
+                break
+
+        cite_parts = [p for p in (provider_name, date) if p]
+        cite_hint = " · ".join(cite_parts)
+
         line = f"- [{n['type'].upper()}] {n['name']}"
-        if date:
-            line += f" ({date})"
+        if cite_hint:
+            line += f"  [cite: {cite_hint}]"
         context_lines.append(line)
+
         if n["type"] in ("symptom", "diagnosis", "medication", "vaccine"):
-            citations.append({"entity": n["name"], "type": n["type"], "date": date, "source": source_str})
+            citations.append({
+                "entity": n["name"],
+                "type": n["type"],
+                "date": date,
+                "source": source_docs[0] if source_docs else "unknown",
+                "provider": provider_name,
+            })
 
     context = "\n".join(context_lines)
+
+    # Build conversation history block (last 6 turns, clean text only)
+    history_block = ""
+    if history:
+        lines = []
+        for msg in history[-6:]:
+            role = "Owner" if msg["role"] == "user" else "PetGraph"
+            lines.append(f"{role}: {msg['content']}")
+        history_block = "Conversation so far:\n" + "\n".join(lines) + "\n\n"
+
     prompt = (
-        f"A pet owner asks: \"{query}\"\n\n"
-        f"Based on the following pet health record graph nodes, write a clear longitudinal summary "
-        f"(2-4 sentences) explaining the pet's history relevant to this query. "
-        f"Cite specific dates and providers where known. Be factual and concise.\n\n"
+        f"{history_block}"
+        f'Owner now asks: "{query}"\n\n'
+        f"Using the pet health graph nodes below, respond in JSON with exactly two keys:\n"
+        f'  "summary": 2–4 sentences answering the question. '
+        f"If this is a follow-up, connect it to the prior conversation. "
+        f"Embed inline citations as [Provider · Date] immediately after each clinical fact "
+        f'(e.g. "Bella had otitis externa [Dr. Webb · 2025-08-18]"). '
+        f"Use the [cite: ...] hints to form citations. Write in plain English for a pet owner.\n"
+        f'  "suggestions": array of exactly 3 short follow-up questions the owner might want to ask next, '
+        f"grounded in what was found. Keep each under 10 words.\n\n"
+        f"Respond with ONLY valid JSON — no markdown fences, no extra text.\n\n"
         f"Graph nodes:\n{context}"
     )
 
     try:
-        summary_text = await _llm_call(prompt)
+        raw = await _llm_call(prompt)
+        parsed = _parse_json_response(raw)
+        summary_text = parsed.get("summary", _fallback_summary(nodes))
+        suggestions = parsed.get("suggestions", [])[:3]
+        if not isinstance(suggestions, list):
+            suggestions = []
     except Exception:
         summary_text = _fallback_summary(nodes)
+        suggestions = []
 
-    return summary_text, citations
+    return summary_text, citations, suggestions
+
+
+def _parse_json_response(text: str) -> dict:
+    """Extract JSON from LLM response, stripping markdown fences if present."""
+    import json, re
+    text = text.strip()
+    # Strip ```json ... ``` or ``` ... ``` fences
+    text = re.sub(r"^```[a-z]*\n?", "", text)
+    text = re.sub(r"\n?```$", "", text)
+    return json.loads(text.strip())
 
 
 async def _generate_pre_visit_text(context: dict) -> str:

@@ -17,8 +17,11 @@ export async function fetchProviders() {
   return data.providers as { id: string; name: string; properties: Record<string, unknown> }[];
 }
 
-export async function querySymptom(text: string) {
-  const { data } = await api.post('/query/symptom', { text });
+export async function querySymptom(
+  text: string,
+  history: { role: string; content: string }[] = [],
+) {
+  const { data } = await api.post('/query/symptom', { text, history });
   return data;
 }
 

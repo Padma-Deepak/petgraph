@@ -44,6 +44,7 @@ export interface QueryResult {
   links: GraphLink[];
   summary: string;
   citations: Citation[];
+  suggestions: string[];
 }
 
 export interface Citation {
