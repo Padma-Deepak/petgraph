@@ -1,0 +1,79 @@
+SACRAMENTO ANIMAL DERMATOLOGY
+Consultation & Initial Allergy Workup
+
+Date: December 3, 2025
+Patient: Bella | Species: Canine | Breed: Golden Retriever | Sex: Female | Age: ~3.5 years
+Owner: Sarah Mitchell | Phone: 555-234-7890
+Referring Veterinarian: Dr. Priya Singh, DVM — Westside Veterinary Clinic
+
+Consulting Specialist: Dr. Lisa Chen, DVM, DACVD
+Diplomate, American College of Veterinary Dermatology
+
+REFERRAL SUMMARY (from Dr. Singh, Oct 12, 2025):
+New-onset paw licking and facial pruritus. Single Cytopoint injection administered 10/12/2025.
+Partial response noted per owner phone follow-up (10/28): pruritus reduced ~60%, returning near
+end of 4-week window. Prior otitis historia: recurrent bilateral otitis externa (Jun & Aug 2025),
+associated Malassezia/bacteria. Requesting allergy workup and long-term management plan.
+
+HISTORY (owner-reported):
+- Pruritus onset approximately September 2025; worsening through October.
+- Primarily affects: paws (licking), periocular area, ventral abdomen.
+- Seasonal pattern suspected: worse in fall, improved in winter previously.
+- No dietary changes in past 12 months. Fed Royal Canin Large Breed Adult.
+- No response to OTC antihistamines tried at home.
+- Cytopoint (Oct 12) gave partial, temporary relief (~4–5 weeks).
+
+PHYSICAL EXAMINATION:
+Temperature: 101.5°F | Weight: 63.5 lbs
+- Skin: mild hyperpigmentation and lichenification bilateral paws; alopecia periorbital bilateral;
+  no pyoderma or Malassezia at this visit.
+- Ears: clear bilaterally (per otoscope). Owner confirms no ear recurrence since ER visit.
+- Coat: generally good condition.
+
+INTRADERMAL ALLERGY TESTING:
+Testing performed with 58-allergen panel (grasses, trees, molds, dust mites, insects, storage mites).
+
+POSITIVE REACTIONS (2+ or greater on 0–4 scale):
+- Bermuda grass (3+)
+- Timothy grass (3+)
+- Dermatophagoides farinae [dust mite] (2+)
+- Dermatophagoides pteronyssinus [dust mite] (2+)
+- Alternaria alternata [mold] (2+)
+- Cladosporium (2+)
+
+DIAGNOSIS:
+Canine atopic dermatitis — environmental allergen sensitization (grass + dust mite + mold panel).
+Consistent with recurrent otitis pattern (atopy is leading predisposing factor for otitis in goldens).
+
+TREATMENT PLAN:
+
+1. Allergen-Specific Immunotherapy (ASIT):
+   Custom allergen serum formulated for Bermuda grass, Timothy grass, dust mites (D. farinae +
+   D. pteronyssinus), Alternaria, Cladosporium.
+   Protocol: Induction injections weekly x 12 weeks, then biweekly maintenance.
+   Owner trained on subcutaneous injection technique.
+   Rx #SAD-2025-1203-ASIT
+
+2. Cytopoint (lokivetmab) 40mg SC — maintenance dosing:
+   Rx #SAD-2025-1203-C
+   Administer every 4–8 weeks as needed for breakthrough pruritus during induction phase.
+   May be administered at Westside Vet or here.
+
+3. Environmental management:
+   - Wash bedding weekly in hot water (dust mites)
+   - HEPA air purifier in sleeping area
+   - Wipe paws after outdoor walks (grass exposure)
+   - Avoid walking on freshly cut grass during high pollen season (spring/fall)
+
+4. Ear prevention: Continue regular ear cleaning (enzymatic) monthly given atopy-otitis link.
+   Prompt evaluation if ear symptoms return — do not delay.
+
+FOLLOW-UP:
+Recheck in 8 weeks to assess immunotherapy response and pruritus control.
+Coordinate with Dr. Singh at Westside for primary care management.
+
+—Dr. Lisa Chen, DVM, DACVD
+  Sacramento Animal Dermatology
+  4400 Marconi Ave, Suite 200, Sacramento, CA 95821
+  derm@sacanimaldermatology.com | (916) 555-0240
+  December 3, 2025

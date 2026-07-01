@@ -1,0 +1,79 @@
+EASTSIDE ANIMAL EMERGENCY CENTER
+Discharge & Treatment Summary
+
+Date of Visit: August 18, 2025 | Arrival: 7:42 PM | Discharge: 10:15 PM
+Patient ID: #4471
+Species: Canine | Breed: Golden Retriever | Sex: Female | Age: ~3 years
+Owner: Sarah Mitchell | Emergency Contact: 555-234-7890
+Relationship to Patient: Owner
+
+Attending Veterinarian: Dr. Marcus Webb, DVM (Emergency Medicine, DACVECC)
+Technician: Rina T., LVT
+
+PRESENTING CONCERN:
+Bilateral ear scratching, head shaking, and ear rubbing on surfaces — progressive worsening over 3-4 days.
+Owner reports prior episode approximately June 2025 (primary vet: Westside Vet Clinic, Dr. Singh) but could
+not recall exact medication used. Owner believes a "hydrocortisone ear drop" was prescribed but is unsure
+of trade name or whether the course was completed.
+
+PHYSICAL EXAMINATION:
+Temperature: 102.4°F | HR: 92 bpm | Weight: 62.3 lbs
+- Left ear canal: moderate-severe erythema, mucopurulent discharge, malodorous
+- Right ear canal: mild erythema, slight waxy discharge
+- No signs of ruptured tympanum noted on visual exam
+- Palpation: patient reacts to pressure on left ear base (pain present)
+- No neurological deficits; no Horner's syndrome; no head tilt
+
+ASSESSMENT:
+Recurrent bilateral otitis externa — likely same organism as prior episode; right ear newly involved.
+
+TREATMENT PROVIDED IN CLINIC:
+- Ear flush: Both ears cleaned under sedation (dexmedetomidine 0.005 mg/kg IM + butorphanol 0.2 mg/kg IM)
+- Cytology: Bilateral Malassezia spp. predominant; bacteria secondary.
+
+MEDICATIONS PRESCRIBED AT DISCHARGE:
+
+1. Mometamax Otic Suspension (mometasone/gentamicin/clotrimazole)
+   Rx #EAEC-2025-0818-1
+   Dose: 4 drops per affected ear, twice daily (BID) x 7 days
+   New prescription — initiated at this visit.
+
+2. Zymox Otic with Hydrocortisone 1.0%
+   Status noted in chart: POTENTIALLY ACTIVE (per owner history — owner could not confirm discontinuation)
+   NOTE: Primary vet records not available at time of visit. If Zymox Otic course from June 2025 was NOT
+   completed, concurrent use with Mometamax should be avoided. Owner STRONGLY ADVISED to contact Westside
+   Vet on Monday to clarify Zymox status and avoid duplication of therapy.
+
+3. Apoquel (oclacitinib) 16mg
+   Rx #EAEC-2025-0818-2
+   Dose: 1 tablet by mouth, twice daily x 5 days, then once daily x 14 days
+   Indication: Pruritus / allergic component management
+
+VACCINES ADMINISTERED ON-SITE:
+Rabies Booster: Imrab 3, 1.0 mL intramuscular, left rear leg
+   Tag Number: ER-4471-RAB-25
+   Lot: 238-177-A | Exp: 2027-01
+   Administered: August 18, 2025
+   Good through: August 18, 2028 (3-year booster)
+
+   ** NOTE: Owner reported that primary vet (Westside, Dr. Singh) last administered rabies in 2023. Booster
+   was overdue per owner's recollection; administered on-site for compliance. Eastside recommends updating
+   Westside records to reflect this administration. **
+
+DISCHARGE INSTRUCTIONS:
+- Monitor ears daily; recheck both ears in 7 days
+- Return immediately if: discharge becomes bloody, signs of hearing loss, head tilt, or behavioral changes
+- Follow up with primary vet (Dr. Singh, Westside) on Monday — CRITICAL: clarify Zymox Otic status and
+  inform of today's rabies vaccine
+- Offer Apoquel with small amount of food to reduce GI upset
+- Keep ears dry; no swimming for at least 2 weeks
+
+FOLLOW-UP RECOMMENDED:
+Primary care follow-up: Westside Veterinary Clinic (Dr. Priya Singh) within 48–72 hours
+Recheck here if primary vet unavailable: Eastside Emergency, ask for Dr. Webb or on-call DVM
+
+—Dr. Marcus Webb, DVM, DACVECC
+  Eastside Animal Emergency Center
+  880 Commerce Drive, Sacramento, CA 95820
+  emergency@eastsideanimals.com | (916) 555-0911
+  24-hour emergency line: (916) 555-0999

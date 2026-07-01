@@ -1,0 +1,60 @@
+WESTSIDE VETERINARY CLINIC
+Patient Visit Summary
+
+Date: June 14, 2025
+Patient: Bella M. | Species: Canine | Breed: Golden Retriever | Sex: Female | Status: Spayed
+DOB: Approx. March 2022 | Weight: 62 lbs
+Owner: Sarah Mitchell | Phone: 555-234-7890 | Email: sarah.mitchell@email.com
+
+Attending Veterinarian: Dr. Priya Singh, DVM
+License: CA-DVM-44821
+
+CHIEF COMPLAINT:
+Persistent left ear scratching and intermittent head shaking, onset approximately 3 months ago per owner
+report. Owner states groomer also noted ear irritation in March. No previous formal ear diagnosis on file.
+
+PHYSICAL EXAMINATION:
+General: Alert, responsive, good body condition (BCS 5/9)
+Temperature: 101.8°F | Heart Rate: 88 bpm | Weight: 62 lbs
+- Left ear canal: erythematous, moderate ceruminous and purulent discharge, mild odor
+- Right ear canal: clear, no discharge
+- Lymph nodes: submandibular nodes mildly reactive on left side
+- Remainder of exam: within normal limits
+
+OTOSCOPIC EXAM: Left tympanic membrane intact and visible. No foreign body.
+
+CYTOLOGY (left ear swab): Moderate mixed bacteria, Malassezia spp. (yeast), mild inflammatory infiltrate.
+
+ASSESSMENT:
+Otitis externa, left ear — bacterial/yeast mixed etiology
+
+TREATMENT PLAN:
+1. Zymox Otic with Hydrocortisone 1.0%
+   Rx #WVC-2025-0614-B
+   Dose: Apply 5-6 drops to left ear canal, once daily x 14 days
+   Owner counseled: do not pre-clean ear before application; allow ear to air-dry after water exposure
+
+2. Ear hygiene counseling: minimize ear moisture (dry ears thoroughly after swimming/bathing)
+
+3. Recheck appointment scheduled: July 5, 2025
+
+RECHECK NOTE — July 5, 2025:
+Patient presented for recheck. Owner reports complete resolution of scratching and head shaking.
+Left ear canal on otoscopic exam: clear, no discharge, no erythema. Cytology clean.
+OUTCOME: Resolved.
+
+MEDICATION STATUS UPDATE:
+Zymox Otic (Rx #WVC-2025-0614-B) — COURSE COMPLETED. Condition resolved.
+STATUS: DISCONTINUED as of July 5, 2025.
+
+VACCINE STATUS (Westside records):
+- Rabies (Imrab 3): Last administered 2023-05-10. Due for booster by 2026-05-10 (3-year vaccine).
+- DHPP: Current, administered 2024-03-01, due 2027.
+- Bordetella: Current.
+
+NOTE: No changes to vaccine record since last annual visit.
+
+—Dr. Priya Singh, DVM
+  Westside Veterinary Clinic
+  123 Elm Street, Sacramento, CA 95814
+  westsidevets@clinic.com | (916) 555-0100

@@ -1,0 +1,51 @@
+WESTSIDE VETERINARY CLINIC
+Patient Visit Summary
+
+Date: May 20, 2025
+Patient: Charlie | Species: Feline | Breed: Domestic Shorthair | Sex: Male | Status: Neutered
+DOB: Approx. January 2021 | Weight: 11.2 lbs
+Owner: Sarah Mitchell | Phone: 555-234-7890
+
+Attending Veterinarian: Dr. Priya Singh, DVM
+
+CHIEF COMPLAINT:
+Annual wellness examination. No acute concerns.
+
+PHYSICAL EXAMINATION:
+General: Bright, alert, excellent body condition (BCS 5/9)
+Temperature: 101.3°F | Heart Rate: 176 bpm | Weight: 11.2 lbs
+- Coat: excellent condition, no parasites detected
+- Oral: mild tartar accumulation, recommend dental cleaning within 12 months
+- Eyes, ears, nose: clear; no discharge; no otitis; tympanic membranes intact
+- Abdomen: soft, non-painful; no organomegaly detected
+- Musculoskeletal: full ROM; no crepitus; lean muscle mass appropriate
+
+ASSESSMENT:
+Healthy adult cat. Due for routine booster vaccines. Dental hygiene monitoring recommended.
+
+VACCINES ADMINISTERED:
+1. FVRCP (Feline Viral Rhinotracheitis/Calicivirus/Panleukopenia) Booster
+   Product: Nobivac Feline 1-HCP
+   Route: subcutaneous, right dorsal neck
+   Lot: 44B-221 | Exp: 2026-08
+
+2. Rabies Vaccine
+   Product: Imrab 1-TF (1-year adjuvanted)
+   Route: subcutaneous, right rear leg
+   Lot: 12C-883 | Exp: 2026-04
+   Next due: May 2026
+
+PARASITE PREVENTION:
+- Flea/tick: Revolution Plus, continuing monthly
+- Heartworm negative (annual SNAP test)
+
+PLAN:
+- Annual wellness: May 2026
+- Dental cleaning: recommend scheduling within 6–12 months
+- Recheck weight if any change in appetite noted
+
+No other concerns. Charlie is a healthy, well-socialized cat.
+
+—Dr. Priya Singh, DVM
+  Westside Veterinary Clinic
+  123 Elm Street, Sacramento, CA 95814

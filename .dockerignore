@@ -1,0 +1,14 @@
+# Root .dockerignore — applies to the root build context if ever used directly
+.git
+.gitignore
+**/.venv
+**/node_modules
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/dist
+**/build
+**/.DS_Store
+**/Thumbs.db
+README.md
+*.md
