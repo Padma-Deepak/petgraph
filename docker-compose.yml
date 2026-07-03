@@ -1,16 +1,22 @@
 name: petgraph
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PetGraph + official Cognee infrastructure services
+# PetGraph — one-command run:
 #
-# Quickstart (SQLite + in-memory vector store — no external dbs needed):
-#   docker compose up --build
+#   1. Create a .env file next to this compose file:
+#        OPENAI_API_KEY=sk-...
+#      (optional — without it, seed data / graph / reminders / insights /
+#       conflicts all work; only Ask, upload, and Visit prep need the key)
+#   2. docker compose up --build
+#   3. Open http://localhost:5173  (or http://127.0.0.1:5173)
 #
-# With Cognee's Postgres + Neo4j backends (full persistence):
-#   docker compose --profile postgres --profile neo4j up --build
+# Ports can be remapped if taken on your machine:
+#   API_PORT=8010 UI_PORT=5180 docker compose up
 #
-# Network name "cognee-network" intentionally matches the official Cognee
-# docker-compose so containers from both compose files can communicate.
+# Cognee runs fully embedded (Kuzu graph + LanceDB vectors) inside the API
+# container; everything persists in the petgraph-data volume. No external
+# databases are needed or supported — the app's graph layer speaks Cypher to
+# Cognee's embedded Kuzu engine.
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -22,14 +28,12 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    networks:
-      - cognee-network
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     volumes:
       - ./backend:/app              # bind-mount source → live --reload
       - /app/.venv                  # keep container's venv, not the host's
-      - petgraph-data:/data         # persistent SQLite + Cognee system files
+      - petgraph-data:/data         # persistent SQLite + Cognee stores
     environment:
       # Storage paths
       - DATA_DIR=/data
@@ -39,22 +43,12 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
-      # Cognee reads LLM_API_KEY (same as OpenAI key)
+      # Cognee reads LLM_API_KEY (same as the OpenAI key)
       - LLM_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=https://api.openai.com/v1
+      - COGNEE_SKIP_CONNECTION_TEST=true
       - ENABLE_BACKEND_ACCESS_CONTROL=false
       - CACHING=false
-      # Optional: Cognee relational + vector backend (postgres profile)
-      - DB_PROVIDER=${DB_PROVIDER:-sqlite}
-      - DB_HOST=${DB_HOST:-postgres}
-      - DB_PORT=${DB_PORT:-5432}
-      - DB_NAME=${DB_NAME:-cognee_db}
-      - DB_USERNAME=${DB_USERNAME:-cognee}
-      - DB_PASSWORD=${DB_PASSWORD:-cognee}
-      # Optional: Cognee graph backend (neo4j profile)
-      - GRAPH_DATABASE_PROVIDER=${GRAPH_DATABASE_PROVIDER:-networkx}
-      - GRAPH_DATABASE_URL=${GRAPH_DATABASE_URL:-bolt://neo4j:7687}
-      - GRAPH_DATABASE_USERNAME=${GRAPH_DATABASE_USERNAME:-neo4j}
-      - GRAPH_DATABASE_PASSWORD=${GRAPH_DATABASE_PASSWORD:-pleaseletmein}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 30s
@@ -69,10 +63,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
-    networks:
-      - cognee-network
     ports:
-      - "5173:5173"
+      - "${UI_PORT:-5173}:5173"
     volumes:
       - ./frontend/src:/app/src            # live HMR — source changes reflected instantly
       - ./frontend/public:/app/public
@@ -84,78 +76,5 @@ services:
       petgraph-api:
         condition: service_healthy
 
-  # ── Official Cognee infrastructure (optional profiles) ─────────────────────
-  # These definitions mirror the official Cognee docker-compose.yml exactly:
-  # https://github.com/topoteretes/cognee
-  #
-  # Activate with: docker compose --profile postgres --profile neo4j up
-
-  postgres:
-    image: pgvector/pgvector:pg17
-    container_name: postgres
-    restart: always
-    profiles:
-      - postgres
-    environment:
-      POSTGRES_USER: ${DB_USERNAME:-cognee}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-cognee}
-      POSTGRES_DB: ${DB_NAME:-cognee_db}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - cognee-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-cognee} -d ${DB_NAME:-cognee_db}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-
-  neo4j:
-    image: neo4j:5.26
-    container_name: neo4j
-    restart: always
-    profiles:
-      - neo4j
-    ports:
-      - "7474:7474"   # HTTP browser
-      - "7687:7687"   # Bolt
-    environment:
-      - NEO4J_AUTH=${NEO4J_AUTH:-neo4j/pleaseletmein}
-      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
-    volumes:
-      - neo4j_data:/data
-    networks:
-      - cognee-network
-    healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-
-  redis:
-    image: redis:7-alpine
-    container_name: redis
-    restart: unless-stopped
-    profiles:
-      - redis
-    ports:
-      - "6379:6379"
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redis_data:/data
-    networks:
-      - cognee-network
-
-networks:
-  cognee-network:
-    name: cognee-network   # same name as official Cognee compose
-
 volumes:
-  petgraph-data:   # SQLite petgraph.db + Cognee system files
-  postgres_data:   # PostgreSQL data when postgres profile is active
-  neo4j_data:      # Neo4j data when neo4j profile is active
-  redis_data:      # Redis AOF when redis profile is active
+  petgraph-data:   # SQLite petgraph.db + Cognee Kuzu/LanceDB stores
