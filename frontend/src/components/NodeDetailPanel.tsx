@@ -41,7 +41,7 @@ export default function NodeDetailPanel({ nodeId, onClose }: Props) {
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
         {/* Properties */}
         <div>
-          <h4 className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Properties</h4>
+          <h4 className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Details</h4>
           <div className="flex flex-col gap-1">
             {Object.entries(node.properties ?? {}).map(([k, v]) => {
               if (k === 'aliases' || v === null || v === undefined || v === '') return null;
@@ -59,8 +59,7 @@ export default function NodeDetailPanel({ nodeId, onClose }: Props) {
         {node.type === 'pet' && aliases.length > 0 && (
           <div>
             <h4 className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">
-              Entity Resolution
-              <span className="ml-1 text-[#58a6ff]">— {aliases.length} name variant{aliases.length !== 1 ? 's' : ''} merged</span>
+              Also appears in records as
             </h4>
             <div className="flex flex-col gap-1">
               {aliases.map((a, i) => (
@@ -71,7 +70,7 @@ export default function NodeDetailPanel({ nodeId, onClose }: Props) {
               ))}
             </div>
             <p className="text-[9px] text-gray-600 mt-2">
-              All variants resolved to a single node by Cognee + entity resolution rules.
+              Different clinics used different names — they've been matched to the same pet automatically.
             </p>
           </div>
         )}
@@ -79,7 +78,7 @@ export default function NodeDetailPanel({ nodeId, onClose }: Props) {
         {/* Source documents */}
         {docs.length > 0 && (
           <div>
-            <h4 className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Source Documents</h4>
+            <h4 className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">From these records</h4>
             {docs.map((d) => (
               <div key={d.filename} className="bg-[#0d1117] rounded p-2 mb-1.5">
                 <p className="text-[10px] text-[#58a6ff] font-mono mb-1">{d.filename}</p>

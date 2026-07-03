@@ -1,18 +1,19 @@
 """
 Deterministic, rule-based conflict detection. NO LLM involved.
-Walks the SQLite graph and checks for:
+Reads nodes/edges from Cognee's graph (the single source of truth) and checks:
   1. Medication active at one provider but discontinued at another.
   2. Vaccine recorded at one provider but absent from another provider's records
      for the same pet within a relevant date window.
 
 All logic is auditable graph-edge traversal — no probabilistic inference.
 """
-import database as db
+from services import cognee_graph
 
 
 async def detect_conflicts() -> list[dict]:
-    nodes = await db.get_all_nodes()
-    edges = await db.get_all_edges()
+    graph = await cognee_graph.get_full_graph()
+    nodes = graph["nodes"]
+    edges = graph["links"]
 
     node_map = {n["id"]: n for n in nodes}
     conflicts: list[dict] = []

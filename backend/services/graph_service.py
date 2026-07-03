@@ -1,79 +1,385 @@
-﻿"""
-Graph traversal, symptom query, and pre-visit summary.
-Uses Cognee hybrid search for semantic matching, then walks our SQLite graph.
+"""
+Symptom query and pre-visit summary, orchestrated by Cognee.
+
+Retrieval flow for a query:
+  1. cognee vector retrieval (ChunksRetriever) → scored chunks (cosine distance)
+  2. relevance decision from Cognee's own scores → strong / weak / none branch
+  3. matched chunks → source documents → anchor nodes in the domain graph
+     (provenance mapping: every domain node records its source_doc_ids)
+  4. neighborhood subgraph around anchors via Cognee graph queries (Cypher) —
+     drives the canvas traversal animation
+  5. cognee GRAPH_COMPLETION for a graph-native semantic answer
+  6. LLM composes the owner-facing response; the prompt branches on relevance,
+     so unrelated history is never forced into the answer
+Every step is captured in a `cognee_trace` payload for the debug drawer.
 """
 import asyncio
-from collections import deque
+
 from config import LLM_PROVIDER, LLM_MODEL, OPENAI_API_KEY, ANTHROPIC_API_KEY
 import database as db
+from services import cognee_graph
 
-_cognee_available = False
-try:
-    import cognee
-    _cognee_available = True
-except ImportError:
-    pass
+# Cosine distance thresholds (lower = closer). Between the two = "moderate".
+# Scored on name-neutralized queries (pet names swapped for "my pet") — the
+# raw pet name matches every document and drowns out the symptom signal.
+# Calibrated on seed data: related queries score 0.53–0.58, unrelated
+# symptoms 0.59+ — so strong ≤ 0.55 and the moderate/weak boundary is 0.58.
+RELEVANCE_STRONG = 0.55
+RELEVANCE_WEAK = 0.58
 
-
-async def get_full_graph() -> dict:
-    nodes = await db.get_all_nodes()
-    edges = await db.get_all_edges()
-    return {
-        "nodes": [_format_node(n) for n in nodes],
-        "links": [_format_edge(e) for e in edges],
-    }
+CLINICAL_TYPES = {"symptom", "diagnosis", "medication", "vaccine", "visit"}
 
 
 async def symptom_query(query_text: str, history: list[dict] | None = None) -> dict:
-    """
-    1. BFS from keyword-matched anchors → graph animation path.
-    2. Full pet medical history → LLM generates a contextual, connected response.
-    Returns: {traversal_path, nodes, links, summary, citations, suggestions, anchor_nodes}
-    """
-    all_nodes = await db.get_all_nodes()
-    all_edges = await db.get_all_edges()
-    node_map = {n["id"]: n for n in all_nodes}
+    graph = await cognee_graph.get_full_graph()
+    node_map = {n["id"]: n for n in graph["nodes"]}
 
-    # BFS for graph animation (keyword anchors → traversal highlights)
-    anchor_ids = await _find_anchors(query_text, all_nodes)
-    traversal_path = _bfs(anchor_ids, node_map, all_edges, max_depth=3)
+    trace: dict = {
+        "semantic_status": cognee_graph.get_semantic_status(),
+        "operations": [],
+    }
 
-    visited_ids = set(traversal_path)
-    sub_nodes = [_format_node(node_map[nid]) for nid in visited_ids if nid in node_map]
-    sub_edges = [
-        _format_edge(e) for e in all_edges
-        if e["source"] in visited_ids and e["target"] in visited_ids
-    ]
+    # 1) + 2) Cognee vector retrieval and relevance decision.
+    # Retrieval runs on a name-neutralized query: the pet's name appears in
+    # every record, so leaving it in makes any "<name> <symptom>" query look
+    # close to the whole history regardless of the symptom.
+    neutralized = _neutralize_names(query_text, graph["nodes"])
+    if neutralized != query_text:
+        trace["query_neutralized"] = neutralized
+    chunks = await _cognee_chunk_search(neutralized, trace)
+    relevance = _assess_relevance(chunks)
+    trace["relevance"] = relevance
 
-    # Full-context intelligent response (not limited to BFS hits)
-    bfs_nodes = [node_map[nid] for nid in traversal_path if nid in node_map]
-    summary, citations, suggestions = await _generate_intelligent_response(
-        query_text, all_nodes, all_edges, node_map,
-        bfs_nodes=bfs_nodes, history=history or []
+    # 3) anchors from matched documents (provenance mapping)
+    anchor_ids: list[str] = []
+    if relevance["level"] in ("strong", "moderate"):
+        anchor_ids = _anchors_from_chunks(chunks, graph["nodes"])
+    trace["anchor_nodes"] = anchor_ids
+
+    # 4) subgraph around anchors via Cognee graph queries
+    traversal_path, sub_nodes, sub_links = [], [], []
+    if anchor_ids:
+        traversal_path, sub_nodes, sub_links = await _anchor_neighborhood(anchor_ids, trace)
+
+    # 5) Cognee graph-native completion (skipped when history is unrelated)
+    cognee_insight = ""
+    if relevance["level"] in ("strong", "moderate"):
+        cognee_insight = await _cognee_graph_completion(query_text, trace)
+
+    # 6) owner-facing response, branched on relevance
+    path_nodes = [node_map[nid] for nid in traversal_path if nid in node_map]
+    summary, citations, suggestions = await _generate_response(
+        query_text, graph, node_map, path_nodes,
+        relevance=relevance, cognee_insight=cognee_insight,
+        history=history or [],
     )
+    if relevance["level"] not in ("strong", "moderate"):
+        citations = []  # no stretched provenance on unrelated answers
 
     return {
         "anchor_nodes": anchor_ids,
         "traversal_path": traversal_path,
         "nodes": sub_nodes,
-        "links": sub_edges,
+        "links": sub_links,
         "summary": summary,
         "citations": citations,
         "suggestions": suggestions,
+        "relevance": relevance,
+        "cognee_trace": trace,
     }
 
 
+# ── Cognee retrieval steps ────────────────────────────────────────────────────
+
+def _neutralize_names(query: str, nodes: list[dict]) -> str:
+    """Swap pet/owner names (and recorded aliases) for neutral placeholders so
+    vector distance reflects the symptom, not the name."""
+    import re
+    terms: list[tuple[str, str]] = []
+    for n in nodes:
+        if n["type"] == "pet":
+            terms.append((n["name"], "my pet"))
+            for alias in n.get("properties", {}).get("aliases") or []:
+                terms.append((str(alias), "my pet"))
+        elif n["type"] == "owner":
+            terms.append((n["name"], "me"))
+    out = query
+    for term, repl in sorted(terms, key=lambda t: -len(t[0])):
+        if len(term) < 3:
+            continue
+        out = re.sub(rf"\b{re.escape(term)}(?=\b|')", repl, out, flags=re.IGNORECASE)
+    return out
+
+async def _cognee_chunk_search(query: str, trace: dict) -> list[dict]:
+    """Vector search via Cognee's ChunksRetriever, keeping its raw scores."""
+    op = {"op": "vector_search", "engine": "cognee ChunksRetriever (LanceDB)",
+          "collection": "DocumentChunk_text", "results": []}
+    trace["operations"].append(op)
+    try:
+        from cognee.modules.retrieval.chunks_retriever import ChunksRetriever
+        retriever = ChunksRetriever(top_k=6)
+        scored = await asyncio.wait_for(retriever.get_retrieved_objects(query), timeout=25)
+    except Exception as e:
+        op["error"] = str(e)[:200]
+        return []
+
+    docs = await db.get_all_documents()
+    results = []
+    for s in scored or []:
+        text = (s.payload or {}).get("text", "")
+        doc = _match_chunk_to_document(text, docs)
+        entry = {
+            "text": text,
+            "score": round(float(s.score), 4),
+            "doc_id": doc["id"] if doc else None,
+            "doc_filename": doc["filename"] if doc else None,
+        }
+        results.append(entry)
+        op["results"].append({
+            "snippet": text[:160], "score": entry["score"],
+            "document": entry["doc_filename"],
+        })
+    return results
+
+
+def _match_chunk_to_document(chunk_text: str, docs: list[dict]) -> dict | None:
+    """Map a Cognee chunk back to the stored source document by content."""
+    if not chunk_text:
+        return None
+    probe = chunk_text.strip()[:200]
+    for d in docs:
+        if probe and probe in d["content"]:
+            return d
+    # chunker may normalize whitespace — retry on a squashed comparison
+    squashed = " ".join(probe.split())[:150]
+    for d in docs:
+        if squashed and squashed in " ".join(d["content"].split()):
+            return d
+    return None
+
+
+def _assess_relevance(chunks: list[dict]) -> dict:
+    """Branch on Cognee's own retrieval scores — no second relevance model."""
+    scored = [c["score"] for c in chunks if c.get("doc_id")]
+    if not scored:
+        state = cognee_graph.get_semantic_status().get("state")
+        return {
+            "level": "unavailable" if state != "ready" else "none",
+            "best_score": None,
+            "thresholds": {"strong": RELEVANCE_STRONG, "weak": RELEVANCE_WEAK},
+            "explanation": (
+                "Cognee's semantic index is still being built — answers use general guidance only."
+                if state != "ready"
+                else "No records were close enough to this question to retrieve."
+            ),
+        }
+    best = min(scored)
+    if best <= RELEVANCE_STRONG:
+        level, explanation = "strong", "Past records closely match this question (low vector distance)."
+    elif best <= RELEVANCE_WEAK:
+        level, explanation = "moderate", "Some past records are loosely related — treat the link as tentative."
+    else:
+        level, explanation = "weak", "Nothing in the records is a close match; the answer avoids referencing history."
+    return {
+        "level": level,
+        "best_score": best,
+        "thresholds": {"strong": RELEVANCE_STRONG, "weak": RELEVANCE_WEAK},
+        "explanation": explanation,
+    }
+
+
+def _anchors_from_chunks(chunks: list[dict], nodes: list[dict]) -> list[str]:
+    """Domain nodes whose provenance intersects the retrieved documents,
+    best-scoring documents first, clinical node types prioritized."""
+    doc_rank: dict[str, float] = {}
+    for c in chunks:
+        if c.get("doc_id") and c["doc_id"] not in doc_rank:
+            doc_rank[c["doc_id"]] = c["score"]
+
+    ranked: list[tuple[float, int, str]] = []
+    for n in nodes:
+        node_docs = set(n.get("source_doc_ids", [])) & set(doc_rank)
+        if not node_docs:
+            continue
+        best_doc = min(doc_rank[d] for d in node_docs)
+        type_prio = 0 if n["type"] in ("symptom", "diagnosis", "medication") else 1
+        ranked.append((best_doc, type_prio, n["id"]))
+
+    ranked.sort()
+    return [nid for _, _, nid in ranked[:5]]
+
+
+async def _anchor_neighborhood(anchor_ids: list[str], trace: dict) -> tuple[list, list, list]:
+    """1–2 hop neighborhood around the anchors, via Cypher on Cognee's graph.
+    Ordered anchors → 1-hop → 2-hop for the traversal animation."""
+    eng = await cognee_graph.engine()
+    cypher_1 = ("MATCH (a:Node)-[:EDGE]-(m:Node) WHERE a.id IN $ids "
+                "RETURN DISTINCT m.id")
+    cypher_2 = ("MATCH (a:Node)-[:EDGE*2..2]-(m:Node) WHERE a.id IN $ids "
+                "RETURN DISTINCT m.id")
+    hop1 = {str(r[0]) for r in await eng.query(cypher_1, {"ids": anchor_ids})}
+    hop2 = {str(r[0]) for r in await eng.query(cypher_2, {"ids": anchor_ids})}
+    trace["operations"].append({
+        "op": "graph_neighborhood",
+        "engine": "cognee.graph (kuzu/cypher)",
+        "cypher": "MATCH (a:Node)-[:EDGE*1..2]-(m:Node) WHERE a.id IN $anchors",
+        "hop1_count": len(hop1), "hop2_count": len(hop2),
+    })
+
+    ordered: list[str] = list(anchor_ids)
+    for nid in sorted(hop1 - set(ordered)):
+        ordered.append(nid)
+    for nid in sorted(hop2 - set(ordered) - hop1):
+        ordered.append(nid)
+
+    node_rows = await eng.query(
+        "MATCH (n:Node) WHERE n.id IN $ids RETURN n.id, n.name, n.type, n.properties",
+        {"ids": ordered},
+    )
+    nodes = [
+        cognee_graph._node_from_props(str(r[0]), {"name": r[1], "type": r[2], "properties": r[3]})
+        for r in node_rows
+    ]
+    nodes = [n for n in nodes if n["type"] in cognee_graph.DOMAIN_TYPES]
+    kept = {n["id"] for n in nodes}
+    ordered = [nid for nid in ordered if nid in kept]
+
+    edge_rows = await eng.query(
+        "MATCH (n:Node)-[r:EDGE]->(m:Node) WHERE n.id IN $ids AND m.id IN $ids "
+        "RETURN n.id, m.id, r.relationship_name",
+        {"ids": list(kept)},
+    )
+    links = [cognee_graph._edge_out(str(r[0]), str(r[1]), str(r[2]), {}) for r in edge_rows]
+    return ordered, nodes, links
+
+
+async def _cognee_graph_completion(query: str, trace: dict) -> str:
+    """Cognee's graph-native answer (GRAPH_COMPLETION) over the indexed docs."""
+    op = {"op": "graph_completion", "engine": "cognee.search(GRAPH_COMPLETION)"}
+    trace["operations"].append(op)
+    try:
+        import cognee
+        results = await asyncio.wait_for(cognee.search(query), timeout=30)
+    except Exception as e:
+        op["error"] = str(e)[:200]
+        return ""
+    parts = []
+    for r in (results or [])[:3]:
+        val = getattr(r, "search_result", None) or (r if isinstance(r, str) else None)
+        if val:
+            parts.append(str(val)[:400])
+    op["answer"] = parts[0][:200] if parts else None
+    return " | ".join(parts)
+
+
+# ── response generation ───────────────────────────────────────────────────────
+
+async def _generate_response(
+    query: str,
+    graph: dict,
+    node_map: dict,
+    path_nodes: list[dict],
+    relevance: dict,
+    cognee_insight: str,
+    history: list[dict],
+) -> tuple[str, list[dict], list[str]]:
+    citations: list[dict] = []
+    for n in path_nodes:
+        if n["type"] not in ("symptom", "diagnosis", "medication", "vaccine"):
+            continue
+        props = n.get("properties", {})
+        date = props.get("date") or props.get("start_date") or ""
+        provider_name = ""
+        for pkey in ("provider_id", "prescriber_id"):
+            pid = props.get(pkey)
+            if pid and pid in node_map:
+                provider_name = node_map[pid]["name"]
+                break
+        citations.append({
+            "entity": n["name"], "type": n["type"], "date": date,
+            "source": (n.get("source_doc_ids") or ["unknown"])[0],
+            "provider": provider_name,
+        })
+
+    pet_context = _build_pet_context(graph["nodes"], graph["links"], node_map)
+
+    history_block = ""
+    if history:
+        turns = [
+            f"{'Owner' if m['role'] == 'user' else 'PetGraph'}: {m['content']}"
+            for m in history[-6:]
+        ]
+        history_block = "Conversation so far:\n" + "\n".join(turns) + "\n\n"
+
+    cognee_block = (
+        f"\n\nSemantic graph context (from Cognee):\n{cognee_insight}\n" if cognee_insight else ""
+    )
+
+    if relevance["level"] in ("strong", "moderate"):
+        connection_rule = (
+            "1. CONNECT TO HISTORY: Cognee's retrieval found related past records "
+            f"(confidence: {relevance['level']}). Reference the specific related records, and "
+            "briefly say WHY they are related (same symptom area, same condition, recency). "
+            'After every clinical fact write [Provider · Date] (e.g. "otitis externa [Dr. Nair · 2025-12-06]").'
+        )
+    else:
+        connection_rule = (
+            "1. NO RELATED HISTORY: Retrieval found no closely related past records for this "
+            "question. Say so plainly in one honest sentence (e.g. 'Nothing in the records "
+            "looks connected to this'). Then give general, practical next-step guidance for "
+            "the concern itself. Do NOT cite, reference, or stretch any past record into the answer."
+        )
+
+    prompt = (
+        f"{history_block}"
+        f'Owner says: "{query}"\n\n'
+        f"You are a knowledgeable pet health assistant. The owner's complete pet medical records are below.\n\n"
+        f"RESPOND AS JSON with keys 'summary' and 'suggestions'. Rules:\n\n"
+        f"summary (3-5 sentences, plain English for a pet owner):\n"
+        f"  {connection_rule}\n"
+        f"  2. SPECIFIC NEXT STEP: If a vet visit is warranted, name the SPECIFIC provider from the "
+        f"directory who has treated this pet for similar issues, give their clinic, and say why. "
+        f"If not urgent, give home monitoring tips with clear escalation criteria.\n"
+        f"  3. FOLLOW-UP: End with one targeted clarifying question that would sharpen your advice.\n\n"
+        f"suggestions (array of exactly 3 items):\n"
+        f"  Mix of follow-up symptom questions, specific next actions, and deeper history queries. "
+        f"Keep each under 12 words.\n\n"
+        f"Output ONLY valid JSON, no markdown fences.\n\n"
+        f"Pet medical records:\n{pet_context}"
+        f"{cognee_block}"
+    )
+
+    try:
+        raw = await _llm_call(prompt)
+        parsed = _parse_json_response(raw)
+        summary_text = parsed.get("summary", "")
+        suggestions = parsed.get("suggestions", [])[:3]
+        if not isinstance(suggestions, list):
+            suggestions = []
+    except Exception:
+        summary_text = _fallback_summary(path_nodes, relevance)
+        suggestions = [
+            "What medications is she currently on?",
+            "When was her last vet visit?",
+            "Is she eating and drinking normally?",
+        ]
+
+    return summary_text, citations, suggestions
+
+
+# ── pre-visit summary ─────────────────────────────────────────────────────────
+
 async def pre_visit_summary(provider_id: str) -> dict:
-    """Generate a summary of what's changed since the pet's last visit with this provider."""
-    all_nodes = await db.get_all_nodes()
-    all_edges = await db.get_all_edges()
+    """What changed since the pet's last visit with this provider — reads the
+    same Cognee-backed graph as the query flow."""
+    graph = await cognee_graph.get_full_graph()
+    all_nodes, all_edges = graph["nodes"], graph["links"]
     node_map = {n["id"]: n for n in all_nodes}
 
     provider = node_map.get(provider_id)
     if not provider:
         return {"error": "Provider not found"}
 
-    # Find all visits with this provider
     visits_with_provider = [
         node_map[e["source"]] for e in all_edges
         if e["target"] == provider_id and e["relationship"] == "seen_at"
@@ -81,9 +387,9 @@ async def pre_visit_summary(provider_id: str) -> dict:
     ]
 
     if not visits_with_provider:
-        return {"provider": provider["name"], "visits": [], "summary": "No prior visits found with this provider."}
+        return {"provider": provider["name"], "visits": [],
+                "summary": "No prior visits found with this provider."}
 
-    # Sort visits by date
     def visit_date(v):
         return v.get("properties", {}).get("date") or "0000-00-00"
 
@@ -91,12 +397,10 @@ async def pre_visit_summary(provider_id: str) -> dict:
     last_visit = visits_with_provider[-1]
     last_date = last_visit.get("properties", {}).get("date", "unknown")
 
-    # Find the pet for this visit
     pet_edges = [e for e in all_edges if e["target"] == last_visit["id"] and e["relationship"] == "had_visit"]
     pet_id = pet_edges[0]["source"] if pet_edges else None
     pet = node_map.get(pet_id) if pet_id else None
 
-    # Collect events since last visit
     new_meds: list[dict] = []
     new_vax: list[dict] = []
     new_diagnoses: list[dict] = []
@@ -110,7 +414,7 @@ async def pre_visit_summary(provider_id: str) -> dict:
             if not node:
                 continue
             props = node.get("properties", {})
-            node_date = props.get("date") or props.get("start_date", "0000-00-00")
+            node_date = props.get("date") or props.get("start_date") or "0000-00-00"
             if node_date > last_date:
                 if node["type"] == "medication":
                     new_meds.append(node)
@@ -119,7 +423,6 @@ async def pre_visit_summary(provider_id: str) -> dict:
                 elif node["type"] == "diagnosis":
                     new_diagnoses.append(node)
                 elif node["type"] == "visit":
-                    # check if different provider
                     prov_edges = [
                         node_map.get(ev["target"]) for ev in all_edges
                         if ev["source"] == node["id"] and ev["relationship"] == "seen_at"
@@ -152,76 +455,7 @@ async def pre_visit_summary(provider_id: str) -> dict:
     }
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
-
-async def _find_anchors(query: str, all_nodes: list[dict]) -> list[str]:
-    """Find relevant nodes using Cognee search + fallback keyword matching."""
-    q_lower = query.lower()
-
-    # Keyword fallback (always run for speed + reliability in demo)
-    keyword_anchors = []
-    priority_types = {"symptom", "diagnosis", "medication"}
-    for n in all_nodes:
-        name_lower = n["name"].lower()
-        desc = n.get("properties", {}).get("description", "").lower()
-        if any(word in name_lower or word in desc for word in q_lower.split()):
-            keyword_anchors.append((0 if n["type"] in priority_types else 1, n["id"]))
-
-    keyword_anchors.sort()
-    result = [nid for _, nid in keyword_anchors[:5]]
-
-    if _cognee_available and OPENAI_API_KEY:
-        try:
-            from cognee.modules.search.types.SearchType import SearchType
-            cognee_results = await asyncio.wait_for(
-                cognee.search(query, query_type=SearchType.CHUNKS), timeout=20
-            )
-            for cr in (cognee_results or [])[:5]:
-                text = str(getattr(cr, "search_result", "") or "")
-                text_lower = text.lower()
-                for n in all_nodes:
-                    if n["name"].lower() in text_lower and n["id"] not in result:
-                        result.insert(0, n["id"])
-        except Exception:
-            pass
-
-    # Always anchor to at least one clinical node
-    if not result:
-        for n in all_nodes:
-            if n["type"] in ("symptom", "diagnosis"):
-                result.append(n["id"])
-                break
-
-    return result[:5]
-
-
-def _bfs(start_ids: list[str], node_map: dict, edges: list[dict], max_depth: int = 3) -> list[str]:
-    """BFS traversal returning ordered list of visited node IDs."""
-    visited: set[str] = set()
-    queue: deque[tuple[str, int]] = deque()
-
-    for sid in start_ids:
-        if sid in node_map:
-            queue.append((sid, 0))
-            visited.add(sid)
-
-    path: list[str] = []
-    adj: dict[str, list[str]] = {}
-    for e in edges:
-        adj.setdefault(e["source"], []).append(e["target"])
-        adj.setdefault(e["target"], []).append(e["source"])
-
-    while queue:
-        nid, depth = queue.popleft()
-        path.append(nid)
-        if depth < max_depth:
-            for neighbor in adj.get(nid, []):
-                if neighbor not in visited and neighbor in node_map:
-                    visited.add(neighbor)
-                    queue.append((neighbor, depth + 1))
-
-    return path
-
+# ── shared helpers ────────────────────────────────────────────────────────────
 
 def _build_pet_context(all_nodes: list[dict], all_edges: list[dict], node_map: dict) -> str:
     """Build a complete, structured medical history for every pet — used as LLM context."""
@@ -240,7 +474,6 @@ def _build_pet_context(all_nodes: list[dict], all_edges: list[dict], node_map: d
                 if owner:
                     lines.append(f"Owner: {owner['name']}")
 
-        # Visits
         visits = sorted(
             [node_map[e["target"]] for e in all_edges
              if e["source"] == pet["id"] and e["relationship"] == "had_visit" and e["target"] in node_map],
@@ -250,12 +483,11 @@ def _build_pet_context(all_nodes: list[dict], all_edges: list[dict], node_map: d
             lines.append("Visit history:")
             for v in visits:
                 vp = v.get("properties", {})
-                prov = node_map.get(vp.get("provider_id", ""), {})
+                prov = node_map.get(vp.get("provider_id", "") or "", {})
                 clinic = prov.get("properties", {}).get("clinic", "")
                 complaint = vp.get("chief_complaint") or vp.get("visit_type") or "routine"
                 lines.append(f"  [{vp.get('date','?')}] {prov.get('name','?')} ({clinic}) — {complaint}")
 
-        # Symptoms (with dates)
         syms = []
         for e in all_edges:
             if e["source"] == pet["id"] and e["relationship"] == "has_symptom":
@@ -269,7 +501,6 @@ def _build_pet_context(all_nodes: list[dict], all_edges: list[dict], node_map: d
                 desc = s.get("properties", {}).get("description", "")
                 lines.append(f"  [{d or '?'}] {s['name']}{': ' + desc if desc else ''}")
 
-        # Diagnoses
         dxs = [node_map[e["target"]] for e in all_edges
                if e["source"] == pet["id"] and e["relationship"] == "received_diagnosis" and e["target"] in node_map]
         if dxs:
@@ -279,14 +510,13 @@ def _build_pet_context(all_nodes: list[dict], all_edges: list[dict], node_map: d
                 outcome = dp.get("outcome", "")
                 lines.append(f"  [{dp.get('date','?')}] {dx['name']}{' — ' + outcome if outcome else ''}")
 
-        # Medications (active and discontinued, with prescriber)
         meds = [node_map[e["target"]] for e in all_edges
                 if e["source"] == pet["id"] and e["relationship"] == "prescribed" and e["target"] in node_map]
         if meds:
             lines.append("Medications:")
             for med in meds:
                 mp = med.get("properties", {})
-                prescriber = node_map.get(mp.get("prescriber_id", ""), {}).get("name", "")
+                prescriber = node_map.get(mp.get("prescriber_id", "") or "", {}).get("name", "")
                 parts = [f"{med['name']} ({mp.get('status','?')})"]
                 if mp.get("dose"): parts.append(mp["dose"])
                 if mp.get("start_date"): parts.append(f"started {mp['start_date']}")
@@ -294,18 +524,16 @@ def _build_pet_context(all_nodes: list[dict], all_edges: list[dict], node_map: d
                 if prescriber: parts.append(f"Rx by {prescriber}")
                 lines.append("  " + ", ".join(parts))
 
-        # Vaccines
         vaxes = [node_map[e["target"]] for e in all_edges
                  if e["source"] == pet["id"] and e["relationship"] == "received_vaccine" and e["target"] in node_map]
         if vaxes:
             lines.append("Vaccines:")
             for vax in vaxes:
                 vp = vax.get("properties", {})
-                prov_name = node_map.get(vp.get("provider_id", ""), {}).get("name", "")
+                prov_name = node_map.get(vp.get("provider_id", "") or "", {}).get("name", "")
                 next_due = f" (next due: {vp['next_due']})" if vp.get("next_due") else ""
                 lines.append(f"  [{vp.get('date','?')}] {vax['name']}{next_due}{' — ' + prov_name if prov_name else ''}")
 
-    # Provider directory — so the LLM can name specific vets
     if providers:
         lines.append("\n=== Provider Directory ===")
         for p in providers:
@@ -321,112 +549,10 @@ def _build_pet_context(all_nodes: list[dict], all_edges: list[dict], node_map: d
     return "\n".join(lines)
 
 
-async def _generate_intelligent_response(
-    query: str,
-    all_nodes: list[dict],
-    all_edges: list[dict],
-    node_map: dict,
-    bfs_nodes: list[dict],
-    history: list[dict] | None = None,
-) -> tuple[str, list[dict], list[str]]:
-    """
-    Generate a tailored, contextually-aware response using the pet's FULL medical history.
-    The LLM sees every symptom, diagnosis, medication, and provider — not just BFS fragments.
-    Citations are extracted from the focused BFS subgraph for the UI strip.
-    """
-    # Citations strip from BFS (focused, not overwhelming)
-    citations: list[dict] = []
-    for n in bfs_nodes:
-        if n["type"] not in ("symptom", "diagnosis", "medication", "vaccine"):
-            continue
-        props = n.get("properties", {})
-        date = props.get("date") or props.get("start_date") or ""
-        provider_name = ""
-        for pkey in ("provider_id", "prescriber_id"):
-            pid = props.get(pkey)
-            if pid and pid in node_map:
-                provider_name = node_map[pid]["name"]
-                break
-        citations.append({
-            "entity": n["name"], "type": n["type"], "date": date,
-            "source": (n.get("source_doc_ids") or ["unknown"])[0],
-            "provider": provider_name,
-        })
-
-    # Full medical history for the LLM
-    pet_context = _build_pet_context(all_nodes, all_edges, node_map)
-
-    # Cognee GRAPH_COMPLETION: semantic graph-native reasoning over the indexed docs
-    cognee_insight = ""
-    if _cognee_available and OPENAI_API_KEY:
-        try:
-            gc_results = await asyncio.wait_for(
-                cognee.search(query),  # default query_type=GRAPH_COMPLETION
-                timeout=20,
-            )
-            if gc_results:
-                parts = []
-                for r in gc_results[:3]:
-                    val = getattr(r, "search_result", None)
-                    if val:
-                        parts.append(str(val)[:400])
-                if parts:
-                    cognee_insight = "Graph-derived insight: " + " | ".join(parts)
-        except Exception:
-            pass
-
-    history_block = ""
-    if history:
-        turns = [
-            f"{'Owner' if m['role'] == 'user' else 'PetGraph'}: {m['content']}"
-            for m in history[-6:]
-        ]
-        history_block = "Conversation so far:\n" + "\n".join(turns) + "\n\n"
-
-    cognee_block = f"\n\nSemantic graph context (from Cognee):\n{cognee_insight}\n" if cognee_insight else ""
-
-    prompt = (
-        f"{history_block}"
-        f'Owner says: "{query}"\n\n'
-        f"You are a knowledgeable pet health assistant. The owner's complete pet medical records are below.\n\n"
-        f"RESPOND AS JSON with keys 'summary' and 'suggestions'. Rules:\n\n"
-        f"summary (3-5 sentences, plain English for a pet owner):\n"
-        f"  1. CONNECT TO HISTORY: Explicitly check whether this symptom or concern appears in the records "
-        f"or could relate to a prior diagnosis, active medication, or past condition. State clearly if you "
-        f"found a connection or found nothing — never be vague.\n"
-        f"  2. INLINE CITATIONS: After every clinical fact write [Provider · Date] "
-        f'(e.g. "Bella had otitis externa [Dr. Webb · 2025-08-18]").\n'
-        f"  3. SPECIFIC NEXT STEP: If a vet visit is warranted, name the SPECIFIC provider from the "
-        f"directory who has treated this pet for similar issues, give their clinic, and say why they are "
-        f"the right choice. If not urgent, give home monitoring tips with clear escalation criteria.\n"
-        f"  4. FOLLOW-UP: End with one targeted clarifying question that would sharpen your advice.\n\n"
-        f"suggestions (array of exactly 3 items):\n"
-        f"  Mix of: follow-up symptom questions, specific next actions ('Book with Dr. X'), "
-        f"and deeper history queries grounded in what is in the records. Keep each under 12 words.\n\n"
-        f"Output ONLY valid JSON, no markdown fences.\n\n"
-        f"Pet medical records:\n{pet_context}"
-        f"{cognee_block}"
-    )
-
-    try:
-        raw = await _llm_call(prompt)
-        parsed = _parse_json_response(raw)
-        summary_text = parsed.get("summary", "")
-        suggestions = parsed.get("suggestions", [])[:3]
-        if not isinstance(suggestions, list):
-            suggestions = []
-    except Exception:
-        summary_text = _fallback_summary(bfs_nodes)
-        suggestions = ["What medications is she currently on?", "When was her last vet visit?", "Is she eating and drinking normally?"]
-
-    return summary_text, citations, suggestions
-
-
 def _parse_json_response(text: str) -> dict:
     """Extract JSON from LLM response, stripping markdown fences if present."""
     import json, re
     text = text.strip()
-    # Strip ```json ... ``` or ``` ... ``` fences
     text = re.sub(r"^```[a-z]*\n?", "", text)
     text = re.sub(r"\n?```$", "", text)
     return json.loads(text.strip())
@@ -472,7 +598,12 @@ async def _llm_call(prompt: str) -> str:
     raise RuntimeError("No LLM configured")
 
 
-def _fallback_summary(nodes: list[dict]) -> str:
+def _fallback_summary(nodes: list[dict], relevance: dict) -> str:
+    if relevance["level"] not in ("strong", "moderate"):
+        return (
+            "No closely related history found in the records for this question. "
+            "Monitor your pet and contact your vet if symptoms persist or worsen."
+        )
     types = [n["type"] for n in nodes]
     dates = [n.get("properties", {}).get("date") for n in nodes if n.get("properties", {}).get("date")]
     dates.sort()
@@ -491,24 +622,3 @@ def _fallback_pre_visit(ctx: dict) -> str:
     if ctx["other_providers_seen"]:
         lines.append(f"• Also seen by: {', '.join(ctx['other_providers_seen'])}")
     return "\n".join(lines)
-
-
-def _format_node(n: dict) -> dict:
-    return {
-        "id": n["id"],
-        "type": n["type"],
-        "name": n["name"],
-        "properties": n.get("properties", {}),
-        "source_doc_ids": n.get("source_doc_ids", []),
-    }
-
-
-def _format_edge(e: dict) -> dict:
-    return {
-        "id": e["id"],
-        "source": e["source"],
-        "target": e["target"],
-        "relationship": e["relationship"],
-        "properties": e.get("properties", {}),
-        "source_doc_id": e.get("source_doc_id"),
-    }

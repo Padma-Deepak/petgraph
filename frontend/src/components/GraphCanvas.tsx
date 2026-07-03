@@ -331,15 +331,15 @@ export default function GraphCanvas({
 
       {/* Traversal indicator */}
       {animating && traversalPath.length > 0 && (
-        <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-10 bg-[#161b22]/90 backdrop-blur border border-[#30363d] rounded-full px-4 py-1.5 text-xs text-[#58a6ff] font-mono pointer-events-none">
-          Traversing… {Math.min(animStep, traversalPath.length)}/{traversalPath.length} nodes
+        <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-10 bg-[#161b22]/90 backdrop-blur border border-[#30363d] rounded-full px-4 py-1.5 text-xs text-[#58a6ff] pointer-events-none">
+          Tracing the connection… {Math.min(animStep, traversalPath.length)}/{traversalPath.length}
         </div>
       )}
 
       {/* Drag hint */}
       {hint && layoutData.nodes.length > 0 && (
         <div className="absolute bottom-12 right-3 z-10 bg-black/60 backdrop-blur text-[10px] text-gray-400 px-3 py-1.5 rounded-lg pointer-events-none transition-opacity">
-          Drag nodes to rearrange · Right-click to unpin · Click to inspect
+          Drag to rearrange · Click any dot for details
         </div>
       )}
 
@@ -366,7 +366,7 @@ export default function GraphCanvas({
       {layoutData.nodes.length === 0 && (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-600 pointer-events-none gap-2">
           <span className="text-4xl">🐾</span>
-          <p className="text-sm">Load seed data to build the graph</p>
+          <p className="text-sm">Load records (Records tab) to see your pet's health map</p>
         </div>
       )}
     </div>

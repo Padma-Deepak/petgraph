@@ -1,19 +1,24 @@
 """
-Ingestion pipeline: Cognee semantic indexing + custom domain entity extraction + SQLite graph building.
+Ingestion pipeline — Cognee-first.
 
-Cognee role: add() + cognify() builds the vector+graph index for semantic search.
-Our role: entity extraction → SQLite graph → entity resolution.
+  1. cognee.add + cognee.cognify: the document enters Cognee's memory —
+     chunking, embeddings, semantic entity extraction and dedup. This is the
+     pipeline that powers hybrid search.
+  2. Typed domain extraction (LLM): pets/providers/meds/vaccines with the
+     properties the business rules need, canonicalized against entities already
+     in the graph (canonical_id — no fuzzy string matching in app code).
+  3. Typed nodes and edges are written into the same Cognee graph.
+  4. Reminders and insights are re-derived from the updated graph.
 """
 import asyncio
-import uuid
 from typing import AsyncIterator
 
 import database as db
+from services import cognee_graph
 from services.entity_extractor import extract_entities
 from services.entity_resolver import (
-    resolve_pets,
-    resolve_providers,
     make_pet_node_id,
+    make_owner_node_id,
     make_provider_node_id,
     make_medication_node_id,
     make_vaccine_node_id,
@@ -22,13 +27,6 @@ from services.entity_resolver import (
     make_visit_node_id,
     normalize_name,
 )
-
-_cognee_available = False
-try:
-    import cognee
-    _cognee_available = True
-except ImportError:
-    pass
 
 
 async def ingest_document(
@@ -42,8 +40,10 @@ async def ingest_document(
     Full ingestion pipeline. Yields progress events as dicts:
       {"stage": str, "message": str, "pct": int}
     """
+    import uuid
+
     doc_id = f"doc_{uuid.uuid4().hex[:10]}"
-    did = await db.save_document({
+    await db.save_document({
         "id": doc_id,
         "filename": filename,
         "content": content,
@@ -51,34 +51,36 @@ async def ingest_document(
         "provider_name": provider_name,
         "doc_date": doc_date,
     })
+    yield {"stage": "saved", "message": f"Saved document: {filename}", "pct": 8, "doc_id": doc_id}
 
-    yield {"stage": "saved", "message": f"Saved document: {filename}", "pct": 10, "doc_id": doc_id}
-
-    # Step 1: Cognee semantic indexing (add is fast; cognify runs in background)
-    if _cognee_available:
-        try:
-            await cognee.add(content, dataset_name="petgraph")
-            yield {"stage": "cognee_add", "message": "Added to Cognee index", "pct": 25}
-            # Kick off cognify in background so it doesn't block ingestion
-            asyncio.create_task(_run_cognify_background())
-            yield {"stage": "cognee_cognify", "message": "Cognee graph update queued", "pct": 45}
-        except Exception as e:
-            yield {"stage": "cognee_warn", "message": f"Cognee indexing skipped: {e}", "pct": 45}
-    else:
-        yield {"stage": "cognee_skip", "message": "Cognee not available, using direct extraction", "pct": 45}
-
-    # Step 2: Domain entity extraction (LLM)
-    yield {"stage": "extracting", "message": "Extracting entities from document…", "pct": 50}
+    # Step 1: Cognee memory pipeline (chunking → embeddings → semantic graph)
     try:
-        entities = await extract_entities(content, doc_id)
+        import cognee
+        yield {"stage": "cognee_add", "message": "Adding to Cognee memory…", "pct": 15}
+        await cognee.add(content, dataset_name="petgraph")
+        yield {"stage": "cognee_cognify", "message": "Cognee cognify: building semantic graph…", "pct": 25}
+        await asyncio.wait_for(cognee.cognify(datasets="petgraph"), timeout=420)
+        cognee_graph.SEMANTIC_STATUS.update(state="ready", error=None)
+        yield {"stage": "cognee_done", "message": "Cognee semantic graph updated ✓", "pct": 55}
+    except Exception as e:
+        yield {"stage": "cognee_warn",
+               "message": f"Cognee semantic indexing failed (continuing): {str(e)[:120]}", "pct": 55}
+
+    # Step 2: typed domain extraction, canonicalized against the existing graph
+    yield {"stage": "extracting", "message": "Extracting health entities…", "pct": 60}
+    try:
+        existing_pets = await cognee_graph.get_nodes_by_type("pet")
+        existing_providers = await cognee_graph.get_nodes_by_type("provider")
+        entities = await extract_entities(content, doc_id, existing_pets, existing_providers)
     except Exception as e:
         yield {"stage": "error", "message": f"Entity extraction failed: {e}", "pct": 100}
         return
 
-    yield {"stage": "extracted", "message": f"Found {sum(len(v) for v in entities.values() if isinstance(v, list))} entities", "pct": 65}
+    n_entities = sum(len(v) for v in entities.values() if isinstance(v, list))
+    yield {"stage": "extracted", "message": f"Found {n_entities} entities", "pct": 72}
 
-    # Step 3: Build graph nodes + edges
-    yield {"stage": "graphing", "message": "Building knowledge graph…", "pct": 70}
+    # Step 3: write typed nodes + edges into the Cognee graph
+    yield {"stage": "graphing", "message": "Updating knowledge graph…", "pct": 78}
     try:
         await _build_graph(entities, doc_id)
     except Exception as e:
@@ -86,17 +88,38 @@ async def ingest_document(
         return
 
     await db.mark_document_processed(doc_id)
+
+    # Step 4: refresh derived state from the updated graph
+    try:
+        from services import reminders, insights
+        await reminders.generate_reminders()
+        await insights.generate_insights()
+        yield {"stage": "derived", "message": "Reminders & insights refreshed", "pct": 95}
+    except Exception as e:
+        yield {"stage": "derived_warn", "message": f"Reminder/insight refresh failed: {str(e)[:120]}", "pct": 95}
+
     yield {"stage": "done", "message": "Document ingested ✓", "pct": 100, "doc_id": doc_id}
 
 
+def _canonical(entity: dict, known_ids: set[str]) -> str | None:
+    """canonical_id from the extractor, validated against the actual graph."""
+    cid = entity.get("canonical_id")
+    return cid if cid and cid in known_ids else None
+
+
 async def _build_graph(entities: dict, doc_id: str):
-    existing_pets = await db.get_nodes_by_type("pet")
+    existing_pets = await cognee_graph.get_nodes_by_type("pet")
+    existing_providers = await cognee_graph.get_nodes_by_type("provider")
+    known_pet_ids = {p["id"] for p in existing_pets}
+    known_provider_ids = {p["id"] for p in existing_providers}
+
+    edges: list[tuple[str, str, str, dict]] = []
 
     # --- Owners ---
     owner_ids: dict[str, str] = {}
     for o in entities.get("owners", []):
-        oid = f"owner_{normalize_name(o['name']).replace(' ', '_')}"
-        await db.upsert_node({
+        oid = make_owner_node_id(o["name"])
+        await cognee_graph.upsert_node({
             "id": oid,
             "type": "owner",
             "name": o["name"],
@@ -105,15 +128,11 @@ async def _build_graph(entities: dict, doc_id: str):
         })
         owner_ids[o["name"]] = oid
 
-    # --- Providers (with entity resolution against existing nodes) ---
-    existing_providers = await db.get_nodes_by_type("provider")
-    extracted_providers = entities.get("providers", [])
-    provider_mapping = resolve_providers(extracted_providers, existing_providers)
-
+    # --- Providers ---
     provider_ids: dict[str, str] = {}
-    for p in extracted_providers:
-        pid = provider_mapping[p["name"]]
-        await db.upsert_node({
+    for p in entities.get("providers", []):
+        pid = _canonical(p, known_provider_ids) or make_provider_node_id(p["name"], p.get("clinic", ""))
+        await cognee_graph.upsert_node({
             "id": pid,
             "type": "provider",
             "name": p["name"],
@@ -125,25 +144,12 @@ async def _build_graph(entities: dict, doc_id: str):
         })
         provider_ids[p["name"]] = pid
 
-    # --- Pets (with entity resolution) ---
-    extracted_pets = entities.get("pets", [])
-    # Attach owner info for fingerprinting
-    for ep in extracted_pets:
-        if owner_ids:
-            ep["owner_name"] = next(iter(owner_ids))
-    pet_mapping = resolve_pets(extracted_pets, existing_pets)
-
-    for ep in extracted_pets:
+    # --- Pets ---
+    pet_ids: dict[str, str] = {}  # raw_name (normalized) → node id
+    for ep in entities.get("pets", []):
         raw_name = ep.get("raw_name", ep.get("name", ""))
-        pid_pet = pet_mapping[raw_name]
-        existing = await db.get_node(pid_pet)
-        aliases = []
-        if existing:
-            aliases = existing.get("properties", {}).get("aliases", [])
-        if raw_name not in aliases:
-            aliases.append(raw_name)
-
-        await db.upsert_node({
+        pid_pet = _canonical(ep, known_pet_ids) or make_pet_node_id(ep.get("species", ""), ep.get("name", raw_name))
+        await cognee_graph.upsert_node({
             "id": pid_pet,
             "type": "pet",
             "name": ep.get("name", raw_name),
@@ -152,36 +158,27 @@ async def _build_graph(entities: dict, doc_id: str):
                 "breed": ep.get("breed"),
                 "sex": ep.get("sex"),
                 "dob_approx": ep.get("dob_approx"),
-                "weight_lbs": ep.get("weight_lbs"),
-                "aliases": aliases,
+                "weight_kg": ep.get("weight_kg"),
+                "aliases": [raw_name],
                 "owner_name": next(iter(owner_ids), None),
             },
             "source_doc_ids": [doc_id],
         })
+        pet_ids[normalize_name(raw_name)] = pid_pet
 
-        # Link pet ↔ owner
         if owner_ids:
             owner_id = next(iter(owner_ids.values()))
-            await db.upsert_edge({
-                "source_id": pid_pet, "target_id": owner_id,
-                "relationship": "owned_by", "source_doc_id": doc_id,
-            })
+            edges.append((pid_pet, owner_id, "owned_by", {"source_doc_id": doc_id}))
 
     def resolve_pet_id(raw_name: str) -> str | None:
-        if not raw_name:
-            return None
-        for k, v in pet_mapping.items():
-            if normalize_name(k) == normalize_name(raw_name):
-                return v
-        return None
+        return pet_ids.get(normalize_name(raw_name or ""))
 
     # --- Visits ---
-    visit_ids: dict[str, str] = {}
     for v in entities.get("visits", []):
         pet_id = resolve_pet_id(v.get("pet_raw_name", ""))
         prov_id = provider_ids.get(v.get("provider_name", ""))
         vid = make_visit_node_id(v.get("date"), pet_id or "unknown", prov_id or "unknown")
-        await db.upsert_node({
+        await cognee_graph.upsert_node({
             "id": vid,
             "type": "visit",
             "name": f"Visit {v.get('date', 'undated')}",
@@ -189,24 +186,22 @@ async def _build_graph(entities: dict, doc_id: str):
                 "date": v.get("date"),
                 "visit_type": v.get("type"),
                 "chief_complaint": v.get("chief_complaint"),
+                "follow_up_date": v.get("follow_up_date"),
                 "provider_id": prov_id,
                 "pet_id": pet_id,
             },
             "source_doc_ids": [doc_id],
         })
-        key = f"{v.get('date')}_{v.get('pet_raw_name')}"
-        visit_ids[key] = vid
-
         if pet_id:
-            await db.upsert_edge({"source_id": pet_id, "target_id": vid, "relationship": "had_visit", "source_doc_id": doc_id})
+            edges.append((pet_id, vid, "had_visit", {"source_doc_id": doc_id}))
         if prov_id:
-            await db.upsert_edge({"source_id": vid, "target_id": prov_id, "relationship": "seen_at", "source_doc_id": doc_id})
+            edges.append((vid, prov_id, "seen_at", {"source_doc_id": doc_id}))
 
     # --- Symptoms ---
     for s in entities.get("symptoms", []):
         pet_id = resolve_pet_id(s.get("pet_raw_name", ""))
         sid = make_symptom_node_id(s["name"])
-        await db.upsert_node({
+        await cognee_graph.upsert_node({
             "id": sid,
             "type": "symptom",
             "name": s["name"],
@@ -218,18 +213,14 @@ async def _build_graph(entities: dict, doc_id: str):
             "source_doc_ids": [doc_id],
         })
         if pet_id:
-            await db.upsert_edge({
-                "source_id": pet_id, "target_id": sid,
-                "relationship": "has_symptom",
-                "properties": {"date": s.get("date")},
-                "source_doc_id": doc_id,
-            })
+            edges.append((pet_id, sid, "has_symptom",
+                          {"date": s.get("date"), "source_doc_id": doc_id}))
 
     # --- Diagnoses ---
     for dx in entities.get("diagnoses", []):
         pet_id = resolve_pet_id(dx.get("pet_raw_name", ""))
         did_dx = make_diagnosis_node_id(dx["name"])
-        await db.upsert_node({
+        await cognee_graph.upsert_node({
             "id": did_dx,
             "type": "diagnosis",
             "name": dx["name"],
@@ -237,19 +228,15 @@ async def _build_graph(entities: dict, doc_id: str):
             "source_doc_ids": [doc_id],
         })
         if pet_id:
-            await db.upsert_edge({
-                "source_id": pet_id, "target_id": did_dx,
-                "relationship": "received_diagnosis",
-                "properties": {"date": dx.get("date")},
-                "source_doc_id": doc_id,
-            })
+            edges.append((pet_id, did_dx, "received_diagnosis",
+                          {"date": dx.get("date"), "source_doc_id": doc_id}))
 
     # --- Medications ---
     for med in entities.get("medications", []):
         pet_id = resolve_pet_id(med.get("pet_raw_name", ""))
         prov_id = provider_ids.get(med.get("prescriber_name", ""))
         med_id = make_medication_node_id(med["name"], med.get("rx_number"))
-        await db.upsert_node({
+        await cognee_graph.upsert_node({
             "id": med_id,
             "type": "medication",
             "name": med["name"],
@@ -265,26 +252,19 @@ async def _build_graph(entities: dict, doc_id: str):
             "source_doc_ids": [doc_id],
         })
         if pet_id:
-            await db.upsert_edge({
-                "source_id": pet_id, "target_id": med_id,
-                "relationship": "prescribed",
-                "properties": {"status": med.get("status"), "date": med.get("start_date")},
-                "source_doc_id": doc_id,
-            })
+            edges.append((pet_id, med_id, "prescribed",
+                          {"status": med.get("status"), "date": med.get("start_date"),
+                           "source_doc_id": doc_id}))
         if prov_id:
             rel = "discontinued_by" if med.get("status") == "discontinued" else "administered_by"
-            await db.upsert_edge({
-                "source_id": med_id, "target_id": prov_id,
-                "relationship": rel,
-                "source_doc_id": doc_id,
-            })
+            edges.append((med_id, prov_id, rel, {"source_doc_id": doc_id}))
 
     # --- Vaccines ---
     for vax in entities.get("vaccines", []):
         pet_id = resolve_pet_id(vax.get("pet_raw_name", ""))
         prov_id = provider_ids.get(vax.get("provider_name", ""))
         vax_id = make_vaccine_node_id(vax["name"], vax.get("date"), pet_id or "unknown")
-        await db.upsert_node({
+        await cognee_graph.upsert_node({
             "id": vax_id,
             "type": "vaccine",
             "name": vax["name"],
@@ -297,25 +277,10 @@ async def _build_graph(entities: dict, doc_id: str):
             "source_doc_ids": [doc_id],
         })
         if pet_id:
-            await db.upsert_edge({
-                "source_id": pet_id, "target_id": vax_id,
-                "relationship": "received_vaccine",
-                "properties": {"date": vax.get("date")},
-                "source_doc_id": doc_id,
-            })
+            edges.append((pet_id, vax_id, "received_vaccine",
+                          {"date": vax.get("date"), "source_doc_id": doc_id}))
         if prov_id:
-            await db.upsert_edge({
-                "source_id": vax_id, "target_id": prov_id,
-                "relationship": "administered_by",
-                "source_doc_id": doc_id,
-            })
+            edges.append((vax_id, prov_id, "administered_by", {"source_doc_id": doc_id}))
 
-
-async def _run_cognify_background():
-    """Fire-and-forget: runs cognify without blocking the caller."""
-    if not _cognee_available:
-        return
-    try:
-        await asyncio.wait_for(cognee.cognify(), timeout=300)
-    except Exception:
-        pass
+    if edges:
+        await cognee_graph.add_edges(edges)

@@ -1,6 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fetchConflicts } from '../api/client';
 import type { Conflict } from '../types';
+
+const TYPE_LABEL: Record<Conflict['type'], string> = {
+  medication_status: 'Medication mismatch',
+  vaccine_record_mismatch: 'Vaccine records disagree',
+};
 
 interface Props {
   onHighlightNodes: (ids: string[]) => void;
@@ -8,45 +13,37 @@ interface Props {
 
 export default function ConflictPanel({ onHighlightNodes }: Props) {
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
-  const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  async function load() {
-    setLoading(true);
-    try {
-      const data = await fetchConflicts();
-      setConflicts(data.conflicts);
-      setLoaded(true);
-    } finally {
-      setLoading(false);
-    }
-  }
+  useEffect(() => {
+    fetchConflicts()
+      .then((data) => setConflicts(data.conflicts))
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, []);
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-          Conflict Detection
-          <span className="ml-1.5 text-[9px] text-gray-600">(rule-based, no LLM)</span>
-        </h3>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="text-xs text-[#58a6ff] hover:text-white transition-colors disabled:opacity-40"
-        >
-          {loading ? '…' : loaded ? '↻ refresh' : 'scan'}
-        </button>
+    <div className="flex flex-col gap-4">
+      <div>
+        <h2 className="text-lg font-semibold text-white">Alerts</h2>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Places where your providers' records don't agree with each other — checked automatically, worth
+          clearing up at your next visit.
+        </p>
       </div>
 
       {loaded && conflicts.length === 0 && (
-        <p className="text-xs text-gray-600">No conflicts detected.</p>
+        <div className="text-center py-12 text-gray-600">
+          <span className="text-3xl block mb-2">👍</span>
+          <p className="text-sm">All your providers' records agree with each other.</p>
+        </div>
       )}
 
       {conflicts.map((c) => (
         <div
           key={c.conflict_key}
-          className={`border rounded-lg overflow-hidden cursor-pointer transition-colors ${
+          className={`border rounded-xl overflow-hidden cursor-pointer transition-colors animate-fade-in ${
             c.severity === 'high'
               ? 'border-red-800 bg-red-950/30 hover:bg-red-950/50'
               : 'border-yellow-800 bg-yellow-950/20 hover:bg-yellow-950/40'
@@ -56,32 +53,36 @@ export default function ConflictPanel({ onHighlightNodes }: Props) {
             onHighlightNodes(c.involved_nodes);
           }}
         >
-          <div className="p-2.5 flex items-start gap-2">
+          <div className="p-4 flex items-start gap-3">
             <span className={`text-lg leading-none ${c.severity === 'high' ? 'text-red-400' : 'text-yellow-400'}`}>
               {c.severity === 'high' ? '⚠' : '⚡'}
             </span>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-0.5">
-                <span className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded ${
-                  c.severity === 'high' ? 'bg-red-900 text-red-300' : 'bg-yellow-900 text-yellow-300'
-                }`}>
-                  {c.type.replace(/_/g, ' ')}
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span
+                  className={`text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                    c.severity === 'high' ? 'bg-red-900 text-red-300' : 'bg-yellow-900 text-yellow-300'
+                  }`}
+                >
+                  {TYPE_LABEL[c.type] ?? 'Records disagree'}
                 </span>
                 {c.medication && <span className="text-xs font-semibold text-white">{c.medication}</span>}
                 {c.vaccine && <span className="text-xs font-semibold text-white">{c.vaccine} vaccine</span>}
+                {c.pet && <span className="text-[10px] text-gray-500">· {c.pet}</span>}
               </div>
               <p className="text-xs text-gray-300 leading-relaxed">{c.description}</p>
+              <p className="text-[10px] text-gray-600 mt-1.5">
+                {expanded === c.conflict_key ? 'Hide suggestion' : 'Tap for what to ask your vet'}
+              </p>
             </div>
           </div>
 
           {expanded === c.conflict_key && (
-            <div className="border-t border-[#30363d] p-2.5 bg-[#0d1117]">
+            <div className="border-t border-[#30363d] p-4 bg-[#0d1117]">
               <p className="text-[10px] text-gray-400 mb-1 font-semibold uppercase tracking-wider">
-                Suggested Question for Your Vet
+                Ask your vet
               </p>
-              <p className="text-xs text-[#58a6ff] leading-relaxed italic">
-                "{c.suggested_question}"
-              </p>
+              <p className="text-xs text-[#79b8ff] leading-relaxed italic">"{c.suggested_question}"</p>
             </div>
           )}
         </div>

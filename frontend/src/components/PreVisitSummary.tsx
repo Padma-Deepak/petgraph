@@ -33,15 +33,21 @@ export default function PreVisitSummary() {
 
   return (
     <div className="flex flex-col gap-3">
-      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Pre-Visit Summary</h3>
+      <div>
+        <h2 className="text-lg font-semibold text-white">Visit prep</h2>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Going to an appointment? Get a quick brief of everything that happened since that clinic last
+          saw your pet.
+        </p>
+      </div>
 
       <div className="flex gap-2">
         <select
           value={selected}
           onChange={(e) => setSelected(e.target.value)}
-          className="flex-1 bg-[#0d1117] border border-[#30363d] focus:border-[#58a6ff] rounded-lg px-2 py-1.5 text-sm text-gray-200 outline-none"
+          className="flex-1 bg-[#161b22] border border-[#30363d] focus:border-[#58a6ff] rounded-lg px-2 py-1.5 text-sm text-gray-200 outline-none"
         >
-          <option value="">Select upcoming provider…</option>
+          <option value="">Who are you visiting?</option>
           {providers.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name} — {String(p.properties?.clinic ?? '')}
@@ -53,7 +59,7 @@ export default function PreVisitSummary() {
           disabled={!selected || loading}
           className="px-3 py-1.5 bg-[#1f6feb] hover:bg-[#388bfd] disabled:opacity-40 rounded-lg text-sm font-medium transition-colors"
         >
-          {loading ? '…' : 'Generate'}
+          {loading ? '…' : 'Prepare brief'}
         </button>
       </div>
 
@@ -79,7 +85,7 @@ export default function PreVisitSummary() {
 
           {Array.isArray(summary.new_vaccines) && summary.new_vaccines.length > 0 && (
             <div>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Vaccines (not in your records)</p>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Vaccines given elsewhere</p>
               {(summary.new_vaccines as Record<string, unknown>[]).map((v, i) => (
                 <p key={i} className="text-xs text-cyan-300">• {String(v.name ?? v)}</p>
               ))}

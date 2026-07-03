@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { CogneeStatus, GraphData, Insight, Reminder } from '../types';
 
 const api = axios.create({ baseURL: '/api' });
 
@@ -15,6 +16,16 @@ export async function fetchNode(id: string) {
 export async function fetchProviders() {
   const { data } = await api.get('/graph/providers');
   return data.providers as { id: string; name: string; properties: Record<string, unknown> }[];
+}
+
+export async function fetchPetSubgraph(petId: string): Promise<GraphData> {
+  const { data } = await api.get(`/graph/pet/${petId}/subgraph`);
+  return data;
+}
+
+export async function fetchCogneeStatus(): Promise<CogneeStatus> {
+  const { data } = await api.get('/graph/cognee/status');
+  return data;
 }
 
 export async function querySymptom(
@@ -35,6 +46,28 @@ export async function fetchSummary(providerId: string) {
   return data;
 }
 
+export async function fetchReminders(): Promise<{ reminders: Reminder[]; count: number; overdue_count: number }> {
+  const { data } = await api.get('/reminders');
+  return data;
+}
+
+export async function dismissReminder(id: string) {
+  await api.post(`/reminders/${id}/dismiss`);
+}
+
+export async function snoozeReminder(id: string, until: string) {
+  await api.post(`/reminders/${id}/snooze`, { until });
+}
+
+export async function fetchInsights(): Promise<{ insights: Insight[]; count: number }> {
+  const { data } = await api.get('/insights');
+  return data;
+}
+
+export async function dismissInsight(id: string) {
+  await api.post(`/insights/${id}/dismiss`);
+}
+
 export async function resetGraph() {
   await api.delete('/ingest/reset');
 }
@@ -42,60 +75,4 @@ export async function resetGraph() {
 export async function fetchDocuments() {
   const { data } = await api.get('/ingest/documents');
   return data.documents;
-}
-
-/** Upload a file and yield SSE events. Returns a cleanup function. */
-export function uploadDocument(
-  file: File,
-  onEvent: (e: { stage: string; message: string; pct: number; doc_id?: string }) => void,
-): () => void {
-  const form = new FormData();
-  form.append('file', file);
-
-  const controller = new AbortController();
-
-  fetch('/api/ingest/upload', { method: 'POST', body: form, signal: controller.signal })
-    .then((res) => _consumeSSE(res, onEvent))
-    .catch((e) => {
-      if (e.name !== 'AbortError') console.error('upload error', e);
-    });
-
-  return () => controller.abort();
-}
-
-/** Stream seed document ingestion. Returns cleanup. */
-export function seedDocuments(
-  onEvent: (e: { stage: string; message: string; pct: number; file?: string; file_index?: number }) => void,
-): () => void {
-  const controller = new AbortController();
-
-  fetch('/api/ingest/seed', { signal: controller.signal })
-    .then((res) => _consumeSSE(res, onEvent))
-    .catch((e) => {
-      if (e.name !== 'AbortError') console.error('seed error', e);
-    });
-
-  return () => controller.abort();
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function _consumeSSE(res: Response, cb: (e: any) => void) {
-  const reader = res.body!.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const parts = buf.split('\n\n');
-    buf = parts.pop() ?? '';
-    for (const part of parts) {
-      const dataLine = part.split('\n').find((l) => l.startsWith('data:'));
-      if (dataLine) {
-        try {
-          cb(JSON.parse(dataLine.slice(5).trim()));
-        } catch {}
-      }
-    }
-  }
 }

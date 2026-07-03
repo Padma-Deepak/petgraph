@@ -50,7 +50,7 @@ export default function DocumentUpload({ onGraphUpdate }: Props) {
       const data = await r.json();
       setProgresses([{
         filename: 'seed-data',
-        message: `${data.node_count} nodes · ${data.edge_count} edges`,
+        message: `${data.node_count ?? ''} records connected`,
         pct: 100,
         done: true,
         error: false,
@@ -128,12 +128,12 @@ export default function DocumentUpload({ onGraphUpdate }: Props) {
         {seeding ? (
           <>
             <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            Loading seed data…
+            Loading sample records…
           </>
         ) : seedDone ? (
-          '✓ Seed data loaded'
+          '✓ Sample records loaded'
         ) : (
-          '🚀 Load Seed Data'
+          '🚀 Load sample records (Bella & Charlie)'
         )}
       </button>
 
@@ -145,7 +145,7 @@ export default function DocumentUpload({ onGraphUpdate }: Props) {
         onClick={() => fileRef.current?.click()}
         className="border border-dashed border-[#30363d] hover:border-[#58a6ff] rounded-lg p-4 text-center cursor-pointer text-xs text-gray-500 hover:text-gray-300 transition-colors"
       >
-        Drop a .txt document or click to upload
+        Drop a .txt visit record here, or click to choose a file
         <input
           ref={fileRef}
           type="file"

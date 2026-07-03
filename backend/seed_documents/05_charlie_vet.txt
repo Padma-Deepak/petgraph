@@ -1,51 +1,45 @@
-WESTSIDE VETERINARY CLINIC
+SUNSHINE VETERINARY CLINIC
+100 Feet Road, Indiranagar, Bengaluru 560038 | +91 80 4112 3456
 Patient Visit Summary
 
-Date: May 20, 2025
-Patient: Charlie | Species: Feline | Breed: Domestic Shorthair | Sex: Male | Status: Neutered
-DOB: Approx. January 2021 | Weight: 11.2 lbs
-Owner: Sarah Mitchell | Phone: 555-234-7890
+Date: November 22, 2025
+Patient: Charlie | Species: Feline | Breed: Indian Domestic Shorthair (Indie) | Sex: Male | Status: Neutered
+DOB: Approx. 2016 | Weight: 5.1 kg
+Owner: Ananya Sharma | Mobile: +91 98450 12345
 
-Attending Veterinarian: Dr. Priya Singh, DVM
+Attending Veterinarian: Dr. Priya Nair, BVSc & AH
+KVC Registration: KA-VET-8842
 
 CHIEF COMPLAINT:
-Annual wellness examination. No acute concerns.
+Annual wellness examination. No owner concerns.
 
 PHYSICAL EXAMINATION:
-General: Bright, alert, excellent body condition (BCS 5/9)
-Temperature: 101.3°F | Heart Rate: 176 bpm | Weight: 11.2 lbs
-- Coat: excellent condition, no parasites detected
-- Oral: mild tartar accumulation, recommend dental cleaning within 12 months
-- Eyes, ears, nose: clear; no discharge; no otitis; tympanic membranes intact
-- Abdomen: soft, non-painful; no organomegaly detected
-- Musculoskeletal: full ROM; no crepitus; lean muscle mass appropriate
+General: Alert, well-fleshed senior cat (BCS 6/9 — mild weight excess)
+Temperature: 38.4°C | Heart Rate: 180 bpm | Weight: 5.1 kg
+- Oral exam: mild tartar on premolars; no gingivitis
+- Heart/lungs: no murmur, clear on auscultation
+- Abdomen: soft, non-painful
+- Coat/skin: good condition
+- Ears/eyes: clear
 
 ASSESSMENT:
-Healthy adult cat. Due for routine booster vaccines. Dental hygiene monitoring recommended.
+Healthy senior cat. Recommend weight monitoring; discussed reducing dry-food portions.
+Given age (~9–10 yrs), recommended senior wellness bloodwork at next visit.
 
-VACCINES ADMINISTERED:
-1. FVRCP (Feline Viral Rhinotracheitis/Calicivirus/Panleukopenia) Booster
-   Product: Nobivac Feline 1-HCP
-   Route: subcutaneous, right dorsal neck
-   Lot: 44B-221 | Exp: 2026-08
+VACCINES ADMINISTERED TODAY:
+1. Tricat (Nobivac Tricat Trio) — feline rhinotracheitis, calicivirus, panleukopenia
+   Batch: TC-4471-B | Administered: 2025-11-22 | Next due: 2026-11-22 (₹950)
 
-2. Rabies Vaccine
-   Product: Imrab 1-TF (1-year adjuvanted)
-   Route: subcutaneous, right rear leg
-   Lot: 12C-883 | Exp: 2026-04
-   Next due: May 2026
+VACCINES DECLINED / DEFERRED:
+- Rabies (Raksharab): last given 2025-05-18, due 2026-05-18. Owner asked to defer today
+  as Charlie is strictly indoor; ADVISED to reschedule before the due date — rabies
+  vaccination remains recommended (and required for travel/boarding) even for indoor cats.
 
-PARASITE PREVENTION:
-- Flea/tick: Revolution Plus, continuing monthly
-- Heartworm negative (annual SNAP test)
+DEWORMING: Drontal Cat, 1.5 tablets PO administered in clinic. Repeat in 3 months. (₹180)
 
-PLAN:
-- Annual wellness: May 2026
-- Dental cleaning: recommend scheduling within 6–12 months
-- Recheck weight if any change in appetite noted
+Consultation fee: ₹500 | Total billed: ₹1,630
 
-No other concerns. Charlie is a healthy, well-socialized cat.
+FOLLOW-UP: Annual wellness in 12 months; senior bloodwork panel recommended then.
 
-—Dr. Priya Singh, DVM
-  Westside Veterinary Clinic
-  123 Elm Street, Sacramento, CA 95814
+—Dr. Priya Nair, BVSc & AH
+  Sunshine Veterinary Clinic, Indiranagar, Bengaluru

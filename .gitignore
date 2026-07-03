@@ -8,6 +8,10 @@ backend/petgraph.db
 # Environment — NEVER commit real keys
 backend/.env
 
+# Cognee runtime stores (Kuzu graph + LanceDB vectors + raw data)
+backend/.cognee_data/
+backend/.cognee_system/
+
 # Node
 frontend/node_modules/
 frontend/dist/

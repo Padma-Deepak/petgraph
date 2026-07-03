@@ -1,0 +1,81 @@
+BENGALURU VETERINARY DERMATOLOGY CENTRE
+4th Block, Jayanagar, Bengaluru 560011 | +91 80 2665 4400 | derm@bvdc.in
+Consultation & Initial Allergy Workup
+
+Date: June 10, 2026
+Patient: Bella | Species: Canine | Breed: Golden Retriever | Sex: Female | Age: ~3 years
+Owner: Ananya Sharma | Mobile: +91 98450 12345
+Referring Veterinarian: Dr. Priya Nair, BVSc & AH — Sunshine Veterinary Clinic, Indiranagar
+
+Consulting Specialist: Dr. Kavita Rao, MVSc (Veterinary Dermatology)
+KVC Registration: KA-VET-6521
+
+REFERRAL SUMMARY (from Dr. Nair, April 12, 2026):
+New-onset paw licking and facial pruritus. Single Cytopoint injection administered
+12/04/2026. Partial response per owner phone follow-up (28/04): pruritus reduced ~60%,
+returning near the end of the 4-week window. Prior otitis history: recurrent bilateral
+otitis externa (December 2025 & February 2026), associated Malassezia/bacteria. Requesting
+allergy workup and long-term management plan.
+
+HISTORY (owner-reported):
+- Pruritus onset approximately March 2026; worsening through April.
+- Primarily affects: paws (licking), periocular area, ventral abdomen.
+- Seasonal pattern suspected: worse after park walks in dry season.
+- No dietary changes in past 12 months. Fed Royal Canin Golden Retriever Adult.
+- No response to OTC antihistamines (cetirizine) tried at home.
+- Cytopoint (April 12) gave partial, temporary relief (~4–5 weeks).
+
+PHYSICAL EXAMINATION:
+Temperature: 38.6°C | Weight: 29.2 kg
+- Skin: mild hyperpigmentation and lichenification, bilateral paws; periocular alopecia;
+  no pyoderma or Malassezia overgrowth at this visit.
+- Ears: clear bilaterally on otoscopy. Owner confirms no ear recurrence since February.
+- Coat: generally good condition.
+
+INTRADERMAL ALLERGY TESTING:
+Performed with a 52-allergen panel (regional grasses, trees, moulds, dust mites, insects).
+
+POSITIVE REACTIONS (2+ or greater on 0–4 scale):
+- Bermuda grass / doob (3+)
+- Parthenium (congress grass) (3+)
+- Dermatophagoides farinae [dust mite] (2+)
+- Dermatophagoides pteronyssinus [dust mite] (2+)
+- Alternaria alternata [mould] (2+)
+- Cladosporium (2+)
+
+DIAGNOSIS:
+Canine atopic dermatitis — environmental allergen sensitisation (grass + dust mite + mould
+panel). Consistent with the recurrent otitis pattern (atopy is a leading predisposing factor
+for otitis externa in Golden Retrievers).
+
+TREATMENT PLAN:
+
+1. Allergen-Specific Immunotherapy (ASIT):
+   Custom allergen serum formulated for Bermuda grass, Parthenium, dust mites (D. farinae +
+   D. pteronyssinus), Alternaria, Cladosporium.
+   Protocol: induction injections weekly x 12 weeks (through ~end August 2026), then
+   biweekly maintenance. Owner trained on subcutaneous injection technique.
+   Rx #BVDC-2026-0610-ASIT (₹14,500 for induction course)
+
+2. Cytopoint (lokivetmab) 2 mg/kg SC — maintenance dosing:
+   Rx #BVDC-2026-0610-C
+   Administer every 4–8 weeks as needed for breakthrough pruritus during induction.
+   May be administered at Sunshine Veterinary Clinic or here.
+
+3. Environmental management:
+   - Wash bedding weekly in hot water (dust mites)
+   - Wipe paws after outdoor walks (grass/Parthenium exposure)
+   - Avoid walking on freshly cut grass; avoid known Parthenium patches near the park
+   - Air purifier in the room where she sleeps, if feasible
+
+4. Ear prevention: continue monthly enzymatic ear cleaning given the atopy–otitis link.
+   Prompt evaluation if ear symptoms return — do not delay.
+
+FOLLOW-UP:
+Recheck on August 5, 2026 to assess immunotherapy response and pruritus control.
+Coordinate with Dr. Nair at Sunshine Veterinary Clinic for primary care management.
+
+Consultation + IDT: ₹6,800 | Total billed (incl. ASIT induction): ₹21,300
+
+—Dr. Kavita Rao, MVSc (Veterinary Dermatology)
+  Bengaluru Veterinary Dermatology Centre, Jayanagar

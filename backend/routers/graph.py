@@ -1,26 +1,31 @@
 from fastapi import APIRouter, HTTPException
+
 import database as db
+from services import cognee_graph
 
 router = APIRouter(prefix="/api/graph", tags=["graph"])
 
 
 @router.get("")
 async def get_graph():
-    """All nodes and links for react-force-graph."""
-    nodes = await db.get_all_nodes()
-    edges = await db.get_all_edges()
-    return {
-        "nodes": nodes,
-        "links": [_edge_to_link(e) for e in edges],
-    }
+    """All domain nodes and links, served from Cognee's graph engine."""
+    return await cognee_graph.get_full_graph()
+
+
+@router.get("/cognee/status")
+async def cognee_status():
+    """Semantic-layer state + node counts — powers the 'How Cognee found this' drawer."""
+    stats = await cognee_graph.get_semantic_layer_stats()
+    return {**cognee_graph.get_semantic_status(), **stats}
 
 
 @router.get("/node/{node_id}")
 async def get_node(node_id: str):
-    node = await db.get_node(node_id)
-    if not node:
+    node = await cognee_graph.get_node(node_id)
+    if not node or node["type"] not in cognee_graph.DOMAIN_TYPES:
         raise HTTPException(404, "Node not found")
-    neighbors = await db.get_adjacent(node_id)
+    neighbors = await cognee_graph.get_neighbors(node_id)
+    neighbors = [n for n in neighbors if n["type"] in cognee_graph.DOMAIN_TYPES]
     docs = await db.get_all_documents()
     doc_map = {d["id"]: d for d in docs}
     source_docs = [doc_map[did] for did in node.get("source_doc_ids", []) if did in doc_map]
@@ -29,22 +34,18 @@ async def get_node(node_id: str):
 
 @router.get("/pets")
 async def get_pets():
-    pets = await db.get_nodes_by_type("pet")
-    return {"pets": pets}
+    return {"pets": await cognee_graph.get_nodes_by_type("pet")}
 
 
 @router.get("/providers")
 async def get_providers():
-    providers = await db.get_nodes_by_type("provider")
-    return {"providers": providers}
+    return {"providers": await cognee_graph.get_nodes_by_type("provider")}
 
 
-def _edge_to_link(e: dict) -> dict:
-    return {
-        "id": e["id"],
-        "source": e["source"],
-        "target": e["target"],
-        "relationship": e["relationship"],
-        "properties": e.get("properties", {}),
-        "source_doc_id": e.get("source_doc_id"),
-    }
+@router.get("/pet/{pet_id}/subgraph")
+async def get_pet_subgraph(pet_id: str):
+    """Per-pet subgraph via a Cognee graph query (directed Cypher traversal)."""
+    pet = await cognee_graph.get_node(pet_id)
+    if not pet or pet["type"] != "pet":
+        raise HTTPException(404, "Pet not found")
+    return await cognee_graph.get_pet_subgraph(pet_id)

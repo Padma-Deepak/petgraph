@@ -6,18 +6,21 @@ from sse_starlette.sse import EventSourceResponse
 
 from config import SEED_DOCS_DIR
 from services.ingestion import ingest_document
+from services import cognee_graph
 from seed_graph import load_seed_graph
 import database as db
 
 router = APIRouter(prefix="/api/ingest", tags=["ingest"])
 
 DOC_META = {
-    "01_groomer_march.txt":      {"doc_type": "groomer_note",  "provider_name": "Jenna K., Paws & Claws",              "doc_date": "2025-03-08"},
-    "02_vet_june.txt":           {"doc_type": "vet_visit",     "provider_name": "Dr. Priya Singh, Westside Vet",       "doc_date": "2025-06-14"},
-    "03_owner_note_august.txt":  {"doc_type": "owner_note",    "provider_name": None,                                   "doc_date": "2025-08-17"},
-    "04_er_discharge_august.txt":{"doc_type": "er_discharge",  "provider_name": "Dr. Marcus Webb, Eastside Emergency", "doc_date": "2025-08-18"},
-    "05_charlie_vet.txt":        {"doc_type": "vet_visit",     "provider_name": "Dr. Priya Singh, Westside Vet",       "doc_date": "2025-05-20"},
-    "06_charlie_groomer.txt":    {"doc_type": "groomer_note",  "provider_name": "Jenna K., Paws & Claws",              "doc_date": "2025-04-05"},
+    "01_groomer_september.txt":     {"doc_type": "groomer_note", "provider_name": "Meera R., Furry Tales Pet Spa",              "doc_date": "2025-09-14"},
+    "02_vet_december.txt":          {"doc_type": "vet_visit",    "provider_name": "Dr. Priya Nair, Sunshine Veterinary Clinic", "doc_date": "2025-12-06"},
+    "03_owner_note_february.txt":   {"doc_type": "owner_note",   "provider_name": None,                                          "doc_date": "2026-02-16"},
+    "04_er_discharge_february.txt": {"doc_type": "er_discharge", "provider_name": "Dr. Arjun Mehta, CityPets 24x7 Emergency",   "doc_date": "2026-02-17"},
+    "05_charlie_vet.txt":           {"doc_type": "vet_visit",    "provider_name": "Dr. Priya Nair, Sunshine Veterinary Clinic", "doc_date": "2025-11-22"},
+    "06_charlie_groomer.txt":       {"doc_type": "groomer_note", "provider_name": "Meera R., Furry Tales Pet Spa",              "doc_date": "2025-10-04"},
+    "07_bella_followup_april.txt":  {"doc_type": "vet_visit",    "provider_name": "Dr. Priya Nair, Sunshine Veterinary Clinic", "doc_date": "2026-04-12"},
+    "08_bella_derm_june.txt":       {"doc_type": "specialist",   "provider_name": "Dr. Kavita Rao, Bengaluru Veterinary Dermatology Centre", "doc_date": "2026-06-10"},
 }
 
 
@@ -41,24 +44,25 @@ async def upload_document(file: UploadFile = File(...)):
 @router.get("/seed")
 async def seed_all():
     """
-    Load seed documents using a pre-computed graph (no LLM needed).
-    Returns JSON on completion — no SSE needed for this fast operation.
+    Load seed documents using a pre-computed graph written directly into
+    Cognee's graph engine (no LLM needed). Resets everything first.
     """
     await db.reset_db()
-    events = await load_seed_graph(SEED_DOCS_DIR)
-    nodes = await db.get_all_nodes()
-    edges = await db.get_all_edges()
+    await cognee_graph.reset()
+    await load_seed_graph(SEED_DOCS_DIR)
+    graph = await cognee_graph.get_full_graph()
     return {
-        "message": "Seed graph loaded",
-        "node_count": len(nodes),
-        "edge_count": len(edges),
+        "message": "Seed graph loaded into Cognee",
+        "node_count": len(graph["nodes"]),
+        "edge_count": len(graph["links"]),
     }
 
 
 @router.delete("/reset")
 async def reset():
-    """Wipe all graph data and documents (dev only)."""
+    """Wipe the Cognee graph/vector stores and app bookkeeping (dev only)."""
     await db.reset_db()
+    await cognee_graph.reset()
     return {"message": "Graph reset"}
 
 

@@ -37,6 +37,34 @@ export interface GraphData {
   links: GraphLink[];
 }
 
+export type RelevanceLevel = 'strong' | 'moderate' | 'weak' | 'none' | 'unavailable';
+
+export interface Relevance {
+  level: RelevanceLevel;
+  best_score: number | null;
+  thresholds: { strong: number; weak: number };
+  explanation: string;
+}
+
+export interface TraceOp {
+  op: string;
+  engine?: string;
+  collection?: string;
+  error?: string;
+  results?: { snippet: string; score: number; document: string | null }[];
+  cypher?: string;
+  hop1_count?: number;
+  hop2_count?: number;
+  answer?: string | null;
+}
+
+export interface CogneeTrace {
+  semantic_status: { state: string; docs_indexed: number; error: string | null };
+  operations: TraceOp[];
+  relevance?: Relevance;
+  anchor_nodes?: string[];
+}
+
 export interface QueryResult {
   anchor_nodes: string[];
   traversal_path: string[];
@@ -45,6 +73,8 @@ export interface QueryResult {
   summary: string;
   citations: Citation[];
   suggestions: string[];
+  relevance: Relevance;
+  cognee_trace: CogneeTrace;
 }
 
 export interface Citation {
@@ -73,6 +103,36 @@ export interface Provider {
     clinic?: string;
     provider_type?: string;
   };
+}
+
+export interface Reminder {
+  id: string;
+  pet_id: string | null;
+  pet_name: string | null;
+  kind: 'vaccine_due' | 'follow_up' | 'medication_end';
+  title: string;
+  details?: string;
+  due_date?: string;
+  status: string;
+}
+
+export interface Insight {
+  id: string;
+  pet_id: string | null;
+  pet_name: string | null;
+  kind: string;
+  title: string;
+  body?: string;
+  why?: string;
+  source: 'pet_records' | 'general_guideline';
+}
+
+export interface CogneeStatus {
+  state: 'empty' | 'indexing' | 'ready' | 'error';
+  docs_indexed: number;
+  error: string | null;
+  domain_nodes: Record<string, number>;
+  semantic_nodes: Record<string, number>;
 }
 
 export interface IngestionEvent {
